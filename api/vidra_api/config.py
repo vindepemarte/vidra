@@ -29,13 +29,11 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if not settings.database_url:
-    settings.database_url = str(
-        URL.create(
-            drivername="postgresql+asyncpg",
-            username=settings.db_user,
-            password=settings.db_password,
-            host=settings.db_host,
-            port=settings.db_port,
-            database=settings.db_name,
-        )
-    )
+    settings.database_url = URL.create(
+        drivername="postgresql+asyncpg",
+        username=settings.db_user,
+        password=settings.db_password,
+        host=settings.db_host,
+        port=settings.db_port,
+        database=settings.db_name,
+    ).render_as_string(hide_password=False)
