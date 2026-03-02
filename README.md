@@ -1,62 +1,54 @@
 # Vidra
 
-> **AI Influencer Platform** — Create, manage, and scale virtual influencers
+Mobile-first AI influencer platform with a FREE offline engine and scalable PRO/MAX architecture.
 
-## What is Vidra?
+## Monorepo Layout
 
-Vidra lets you create AI influencers with:
-- **Deep persona DNA** — Not just a face, but a full personality
-- **Content calendars** — 6 posts/day × 30 days, auto-generated
-- **Wardrobe combinatorics** — Mix & match outfits intelligently
-- **Narrative arcs** — Story continuity across weeks
-- **Export anywhere** — Prompts optimized for Higgsfield, Midjourney, etc.
+- `web/`: Next.js 14 dashboard + NextAuth
+- `api/`: FastAPI backend + SQLAlchemy + Stripe webhook
+- `life-framework-v1/`: imported life framework repository
+- `docker-compose.yml`: single stack for Coolify
 
-## Stack
+## Tiers
 
-| Component | Technology |
-|-----------|------------|
-| Frontend | Next.js 14 (App Router) |
-| Backend | FastAPI (life-framework) |
-| Database | PostgreSQL (Coolify) |
-| Auth | NextAuth.js |
-| Storage | Local filesystem |
-| Deploy | Coolify (all-in-one) |
+- `FREE`: offline-only Python generation (no external API calls)
+- `PRO`: quality uplift with optional LLM/search integration
+- `MAX`: multi-persona orchestration + advanced automation workflows
 
-## Quick Start
+## Deployment (Coolify)
 
-```bash
-# Clone
-git clone https://github.com/vindepemarte/vidra.git
-cd vidra
+Use one Docker Compose resource pointing to this repo.
 
-# Frontend
-cd web
-npm install
-npm run dev
+Required env vars:
 
-# Backend
-cd ../api
-pip install -e .
-uvicorn life.api.main:app --reload
-```
+- `NEXTAUTH_URL=https://vidra.hellolexa.space`
+- `FRONTEND_URL=https://vidra.hellolexa.space`
+- `NEXT_PUBLIC_API_URL=https://api.vidra.hellolexa.space`
+- `NEXTAUTH_SECRET=...`
+- `JWT_SECRET=...`
+- `POSTGRES_USER=vidra`
+- `POSTGRES_PASSWORD=...`
+- `POSTGRES_DB=vidra`
+- `STRIPE_SECRET_KEY=...`
+- `STRIPE_WEBHOOK_SECRET=...`
 
-## Documentation
+Optional for PRO/MAX:
 
-- [BUILD-PLAN.md](./BUILD-PLAN.md) — Complete build plan
+- `OPENROUTER_API_KEY=...`
+- `BRAVE_API_KEY=...`
 
-## Pricing
+## API Endpoints (MVP)
 
-| Tier | Price | Features |
-|------|-------|----------|
-| **Free** | $0 | 1 persona, offline templates, 30 days |
-| **Pro** | $29/mo | 3 personas, LLM APIs, unlimited |
-| **Agency** | $199/mo | 10+ personas, team, white-label |
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET/POST/PUT/DELETE /api/personas`
+- `POST /api/calendar/{persona_id}/generate`
+- `GET /api/calendar/{persona_id}/{year}/{month}`
+- `GET /api/export/{persona_id}/{year}/{month}/markdown`
+- `POST /api/billing/webhook`
 
-## Timeline
+## Notes
 
-- **Build:** 24 hours
-- **Launch:** vidra.hellolexa.space
-
----
-
-*Built with 💜 by Lexa*
+- This MVP intentionally auto-creates DB tables on API startup.
+- Stripe price ID mapping for PRO/MAX is in `api/vidra_api/routes/billing.py`.

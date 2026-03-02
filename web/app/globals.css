@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Rajdhani", sans-serif;
+  background: radial-gradient(circle at 10% 10%, rgba(51, 245, 255, 0.18), transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(155, 255, 63, 0.16), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(255, 91, 46, 0.14), transparent 45%),
+    #05070f;
+  color: #f7fbff;
+  min-height: 100vh;
+}
+
+.grid-noise {
+  background-image: linear-gradient(rgba(51, 245, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(51, 245, 255, 0.08) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.panel {
+  border: 1px solid rgba(51, 245, 255, 0.28);
+  background: linear-gradient(145deg, rgba(13, 18, 33, 0.94), rgba(7, 11, 20, 0.92));
+  box-shadow: 0 0 30px rgba(51, 245, 255, 0.18);
+  border-radius: 18px;
+}
+
+input,
+button,
+select,
+textarea {
+  font: inherit;
+}

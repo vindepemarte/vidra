@@ -1,0 +1,16 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+COPY life-framework-v1 /app/life-framework-v1
+COPY api /app/api
+
+RUN pip install --no-cache-dir -e /app/life-framework-v1 \
+    && pip install --no-cache-dir -e /app/api
+
+EXPOSE 8000
+
+CMD ["uvicorn", "vidra_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

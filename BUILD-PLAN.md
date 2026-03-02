@@ -1221,3 +1221,14 @@ HOUR 23-24: LAUNCH
 ---
 
 *Plan updated. Ready to execute.* 💜
+
+---
+
+## PART 14: EXECUTION DECISIONS (2026-03-02)
+
+1. Monorepo strategy confirmed (`vidra` as source of truth).
+2. `life-framework-v1` integrated as internal engine source.
+3. Single `docker-compose.yml` deployment for Coolify.
+4. FREE plan hard rule: Python-only offline generation, zero external API calls.
+5. Stripe adopted for paid plan lifecycle (`PRO`, `MAX`) via webhook updates.
+6. Primary UX direction: mobile-first futuristic dashboard.
