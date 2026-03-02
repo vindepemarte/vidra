@@ -123,6 +123,17 @@ type MediaList = {
   jobs: MediaJob[];
 };
 
+type PersonaTab = "overview" | "narrative" | "style" | "world" | "calendar" | "media";
+
+const TAB_OPTIONS: Array<{ id: PersonaTab; label: string; marker: string }> = [
+  { id: "overview", label: "Overview", marker: "ID" },
+  { id: "narrative", label: "Narrative", marker: "ST" },
+  { id: "style", label: "Style DNA", marker: "DN" },
+  { id: "world", label: "World", marker: "EV" },
+  { id: "calendar", label: "Calendar", marker: "CL" },
+  { id: "media", label: "Media Studio", marker: "MD" }
+];
+
 function monthKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
@@ -144,6 +155,46 @@ function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+function badgeTone(status: string): string {
+  if (status === "completed") return "border-emerald-300/40 bg-emerald-500/15 text-emerald-100";
+  if (status === "failed") return "border-rose-300/40 bg-rose-500/15 text-rose-100";
+  return "border-slate-300/35 bg-slate-700/30 text-slate-100";
+}
+
+type CollapsibleBlockProps = {
+  title: string;
+  subtitle: string;
+  content: string;
+  onCopy: () => void;
+  defaultOpen?: boolean;
+};
+
+function CollapsibleBlock({ title, subtitle, content, onCopy, defaultOpen = false }: CollapsibleBlockProps) {
+  return (
+    <details className="subpanel p-3" open={defaultOpen}>
+      <summary className="cursor-pointer list-none">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="section-label">{subtitle}</p>
+            <h3 className="mt-1 text-base font-bold text-slate-100">{title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              onCopy();
+            }}
+            className="copy-btn"
+          >
+            Copy
+          </button>
+        </div>
+      </summary>
+      <pre className="data-scroll mt-3 whitespace-pre-wrap text-xs text-slate-100">{content}</pre>
+    </details>
+  );
+}
+
 export default function PersonaPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -154,6 +205,7 @@ export default function PersonaPage() {
 
   const [detail, setDetail] = useState<PersonaDetail | null>(null);
   const [myPlan, setMyPlan] = useState<MyPlan | null>(null);
+  const [activeTab, setActiveTab] = useState<PersonaTab>("overview");
   const [selectedMonthKey, setSelectedMonthKey] = useState("");
   const [loadedMonth, setLoadedMonth] = useState<CalendarMonth | null>(null);
   const [mediaJobs, setMediaJobs] = useState<MediaJob[]>([]);
@@ -198,6 +250,8 @@ export default function PersonaPage() {
     [mediaJobs]
   );
 
+  const hasCalendarSource = postOptions.length > 0;
+
   useEffect(() => {
     if (!busyRegenerate || !regenerateStartedAt) {
       setRegenerateElapsedSec(0);
@@ -210,6 +264,12 @@ export default function PersonaPage() {
 
     return () => window.clearInterval(timer);
   }, [busyRegenerate, regenerateStartedAt]);
+
+  useEffect(() => {
+    if (mediaMode === "image") {
+      setSelectedSourceMediaId("");
+    }
+  }, [mediaMode]);
 
   async function loadMediaJobs(): Promise<void> {
     if (!token || !personaId) return;
@@ -280,6 +340,9 @@ export default function PersonaPage() {
       if (firstPost) {
         setSelectedPostId(firstPost.id);
         setSelectedSlidePrompt(firstPost.slides?.[0]?.prompt || firstPost.prompt);
+      } else {
+        setSelectedPostId("");
+        setSelectedSlidePrompt("");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot load month");
@@ -343,8 +406,12 @@ export default function PersonaPage() {
 
   async function generateMedia(): Promise<void> {
     if (!token || !personaId || busyMedia) return;
+    if (!hasCalendarSource) {
+      setError("Load a saved calendar first in the Calendar tab before generating media.");
+      return;
+    }
     if (!selectedPostId) {
-      setError("Select a post first.");
+      setError("Select a calendar post first.");
       return;
     }
     if (!selectedSlidePrompt.trim()) {
@@ -386,7 +453,7 @@ export default function PersonaPage() {
       const job = (await res.json()) as MediaJob;
       await trackEvent("media_generated", { mode: mediaMode, provider: job.provider }, token);
 
-      setSuccess(`Media job completed (${job.mode.toUpperCase()}).`);
+      setSuccess(`Media job queued (${job.mode.toUpperCase()}). Status will update in the list below.`);
       await loadMediaJobs();
       await loadPersonaDetail(false);
 
@@ -414,7 +481,7 @@ export default function PersonaPage() {
   async function copyPrompt(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
-      setSuccess("Prompt copied.");
+      setSuccess("Copied to clipboard.");
     } catch {
       setError("Cannot copy prompt on this browser.");
     }
@@ -432,13 +499,13 @@ export default function PersonaPage() {
   }, [status, token, personaId, router]);
 
   if (status === "loading" || loading) {
-    return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading persona deck...</main>;
+    return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading persona workspace...</main>;
   }
 
   if (!detail) {
     return (
       <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">
-        <p className="rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-200">Persona not found.</p>
+        <p className="rounded-lg border border-rose-300/40 bg-rose-500/10 p-3 text-sm text-rose-100">Persona not found.</p>
       </main>
     );
   }
@@ -450,21 +517,23 @@ export default function PersonaPage() {
       <section className="panel p-4 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-cyan-300/40 bg-cyan-500/10 text-xl font-black text-cyan-100">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-300/35 bg-slate-900/70 text-xl font-black text-slate-100">
               {detail.persona.name.slice(0, 1).toUpperCase()}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Vidra by Lexa AI · Persona Control Layer</p>
+              <p className="section-label">Vidra by Lexa AI · Persona Workspace</p>
               <h1 className="mt-1 text-2xl font-black sm:text-4xl">{detail.persona.name}</h1>
-              <p className="text-sm text-slate-300">@{detail.persona.handle} · {detail.persona.city} · {detail.persona.niche}</p>
+              <p className="text-sm text-slate-300">
+                @{detail.persona.handle} · {detail.persona.city} · {detail.persona.niche}
+              </p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">
+            <Link href="/dashboard" className="copy-btn inline-flex items-center justify-center px-3 py-2 text-xs">
               Back to Dashboard
             </Link>
-            <Link href="/settings" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">
+            <Link href="/settings" className="copy-btn inline-flex items-center justify-center px-3 py-2 text-xs">
               Settings
             </Link>
             <LogoutButton />
@@ -472,30 +541,30 @@ export default function PersonaPage() {
         </div>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-5">
-          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
-            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Tier</p>
-            <p className="mt-1 text-xl font-black">{myPlan?.current_tier.toUpperCase() ?? "FREE"}</p>
+          <article className="subpanel p-3">
+            <p className="section-label">Tier</p>
+            <p className="mt-1 text-xl font-black">{myPlan?.current_tier?.toUpperCase() ?? "FREE"}</p>
           </article>
-          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
-            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Profile Mode</p>
+          <article className="subpanel p-3">
+            <p className="section-label">Profile Mode</p>
             <p className="mt-1 text-xl font-black">{profile?.generated_mode?.toUpperCase() ?? "OFFLINE"}</p>
           </article>
-          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
-            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Saved Calendars</p>
+          <article className="subpanel p-3">
+            <p className="section-label">Saved Calendars</p>
             <p className="mt-1 text-xl font-black">{calendarArchive.length}</p>
           </article>
-          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
-            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Media Jobs</p>
+          <article className="subpanel p-3">
+            <p className="section-label">Media Jobs</p>
             <p className="mt-1 text-xl font-black">{detail.media_generated_count}</p>
           </article>
-          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
-            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Credits</p>
+          <article className="subpanel p-3">
+            <p className="section-label">Credits</p>
             <p className="mt-1 text-xl font-black">{myPlan?.credits_balance ?? 0}</p>
           </article>
         </div>
 
         {myPlan?.openrouter_model ? (
-          <p className="mt-3 rounded-md border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+          <p className="mt-3 rounded-lg border border-sky-300/35 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
             Active paid model: <span className="font-bold">{myPlan.openrouter_model}</span>
           </p>
         ) : null}
@@ -503,22 +572,26 @@ export default function PersonaPage() {
 
       <section className="grid gap-4 lg:grid-cols-2">
         <article className="panel p-4">
-          <h2 className="text-lg font-black">Profile Actions</h2>
-          <p className="mt-1 text-xs text-slate-300">Regenerate this persona intelligence stack whenever you change niche/city/vibe.</p>
+          <p className="section-label">Operations</p>
+          <h2 className="mt-1 text-xl font-black">Profile Control</h2>
+          <p className="mt-1 text-xs text-slate-300">
+            Regenerate profile when persona identity changes. Auto uses paid model for PRO/MAX if configured.
+          </p>
+
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => regenerateProfile("auto")}
               disabled={busyRegenerate !== null}
-              className="rounded-lg bg-lime-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+              className="rounded-lg bg-sky-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
             >
-              {busyRegenerate === "auto" ? "Generating..." : "Regenerate Profile (Auto)"}
+              {busyRegenerate === "auto" ? "Generating..." : "Regenerate (Auto)"}
             </button>
             <button
               type="button"
               onClick={() => regenerateProfile("offline")}
               disabled={busyRegenerate !== null}
-              className="rounded-lg border border-cyan-300/40 px-4 py-2 text-sm font-bold text-cyan-100 disabled:opacity-50"
+              className="copy-btn px-4 py-2 text-sm disabled:opacity-50"
             >
               {busyRegenerate === "offline" ? "Generating..." : "Force Offline"}
             </button>
@@ -526,288 +599,410 @@ export default function PersonaPage() {
               type="button"
               onClick={() => regenerateProfile("llm")}
               disabled={busyRegenerate !== null}
-              className="rounded-lg border border-orange-300/40 px-4 py-2 text-sm font-bold text-orange-200 disabled:opacity-50"
+              className="rounded-lg border border-amber-300/35 bg-amber-500/10 px-4 py-2 text-sm font-bold text-amber-100 disabled:opacity-50"
             >
               {busyRegenerate === "llm" ? "Generating..." : "Force LLM"}
             </button>
           </div>
+
           {busyRegenerate ? (
-            <p className="mt-3 rounded-lg border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
-              Profile generation in progress ({regenerateElapsedSec}s). Keep this tab open. If it exceeds ~4 minutes, it will timeout safely.
+            <p className="mt-3 rounded-lg border border-sky-300/35 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+              Generation in progress ({regenerateElapsedSec}s). Keep this tab open; avoid redeploying during generation.
             </p>
           ) : null}
+
           <button
             type="button"
             onClick={deletePersona}
             disabled={busyDelete}
-            className="mt-3 rounded-lg border border-red-300/40 px-4 py-2 text-sm font-bold text-red-200 disabled:opacity-50"
+            className="mt-3 rounded-lg border border-rose-300/40 px-4 py-2 text-sm font-bold text-rose-100 disabled:opacity-50"
           >
             {busyDelete ? "Deleting..." : "Delete Persona"}
           </button>
         </article>
 
         <article className="panel p-4">
-          <h2 className="text-lg font-black">Bio & Prompt Blueprint</h2>
-          <p className="mt-1 rounded-lg border border-cyan-300/20 bg-slate-950/50 px-3 py-2 text-sm text-slate-100">
-            {profile?.bio || "No bio generated yet."}
-          </p>
-          <h3 className="mt-3 text-sm font-bold uppercase tracking-wide text-cyan-100">Master Image Prompt</h3>
-          <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {profile?.prompt_blueprint || "No prompt blueprint yet."}
-          </pre>
-          <button
-            type="button"
-            onClick={() => void copyPrompt(profile?.prompt_blueprint || "")}
-            className="mt-2 rounded-md border border-cyan-300/40 px-2 py-1 text-xs font-bold text-cyan-100"
-          >
-            Copy Master Prompt
-          </button>
+          <p className="section-label">Data Wiring</p>
+          <h2 className="mt-1 text-xl font-black">Consistency Check</h2>
+          <ul className="mt-3 space-y-2 text-sm text-slate-100">
+            <li className="subpanel px-3 py-2">
+              Persona auto-generation uses: <span className="font-semibold">name, age, city, niche, vibe</span>.
+            </li>
+            <li className="subpanel px-3 py-2">
+              Media Studio prompt source: <span className="font-semibold">loaded calendar post/slide prompts</span>.
+            </li>
+            <li className="subpanel px-3 py-2">
+              Current calendar source: <span className="font-semibold">{loadedMonth ? `${loadedMonth.year}-${String(loadedMonth.month).padStart(2, "0")}` : "none loaded"}</span>.
+            </li>
+            <li className="subpanel px-3 py-2">
+              If no calendar is loaded, media generation is blocked with guidance instead of generic prompts.
+            </li>
+          </ul>
         </article>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="panel p-4">
-          <h2 className="text-lg font-black">Backstory</h2>
-          <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {profile?.backstory_md || "No backstory yet."}
-          </pre>
-        </article>
-        <article className="panel p-4">
-          <h2 className="text-lg font-black">Future Plans & Strategy</h2>
-          <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {(profile?.future_plans_md || "") + "\n\n" + (profile?.strategy_md || "")}
-          </pre>
-        </article>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="panel p-4">
-          <h2 className="text-lg font-black">Physical · Wardrobe · Beauty</h2>
-          <h3 className="mt-3 text-xs font-bold uppercase tracking-wide text-cyan-100">Physical DNA</h3>
-          <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {prettyJson(profile?.physical ?? {})}
-          </pre>
-          <h3 className="mt-3 text-xs font-bold uppercase tracking-wide text-cyan-100">Wardrobe Prompts</h3>
-          <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {prettyJson(profile?.wardrobe ?? {})}
-          </pre>
-          <h3 className="mt-3 text-xs font-bold uppercase tracking-wide text-cyan-100">Beauty Prompts (Hair, Nails, Makeup)</h3>
-          <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {prettyJson(profile?.beauty ?? {})}
-          </pre>
-        </article>
-
-        <article className="panel p-4">
-          <h2 className="text-lg font-black">World Context & Carousel Rules</h2>
-          <h3 className="mt-3 text-xs font-bold uppercase tracking-wide text-cyan-100">World / Events</h3>
-          <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {prettyJson(profile?.world ?? {})}
-          </pre>
-          <h3 className="mt-3 text-xs font-bold uppercase tracking-wide text-cyan-100">Carousel Prompt Rules</h3>
-          <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
-            {prettyJson(profile?.carousel_rules ?? {})}
-          </pre>
-        </article>
-      </section>
-
-      <section className="panel p-4">
-        <h2 className="text-lg font-black">Calendar Archive</h2>
-        {calendarArchive.length === 0 ? (
-          <p className="mt-2 rounded-lg border border-cyan-300/20 bg-slate-950/50 px-3 py-2 text-sm text-slate-300">
-            No saved months yet. Generate from dashboard first.
-          </p>
-        ) : (
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <select
-              className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
-              value={selectedMonthKey}
-              onChange={(e) => setSelectedMonthKey(e.target.value)}
-            >
-              <option value="">Select month</option>
-              {calendarArchive.map((entry) => (
-                <option key={entry.id} value={monthKey(entry.year, entry.month)}>
-                  {entry.year}-{String(entry.month).padStart(2, "0")} · {entry.mode.toUpperCase()} · {entry.days_count} days
-                </option>
-              ))}
-            </select>
+      <section className="panel p-3">
+        <div className="flex flex-wrap gap-2">
+          {TAB_OPTIONS.map((tab) => (
             <button
+              key={tab.id}
               type="button"
-              onClick={() => {
-                const [selectedYear, selectedMonth] = selectedMonthKey.split("-").map(Number);
-                if (selectedYear && selectedMonth) {
-                  void loadMonth(selectedYear, selectedMonth);
-                }
-              }}
-              disabled={!selectedMonthKey || busyLoadMonth}
-              className="rounded-lg border border-cyan-300/40 px-4 py-2 text-sm font-bold text-cyan-100 disabled:opacity-50"
+              onClick={() => setActiveTab(tab.id)}
+              className={`pill-btn ${activeTab === tab.id ? "pill-btn-active" : ""}`}
             >
-              {busyLoadMonth ? "Loading..." : "Load Month"}
+              <span className="mr-1 rounded-md border border-slate-400/35 bg-slate-700/40 px-1.5 py-0.5 text-[10px]">{tab.marker}</span>
+              {tab.label}
             </button>
-          </div>
-        )}
+          ))}
+        </div>
       </section>
 
-      {loadedMonth ? (
+      {activeTab === "overview" ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="panel p-4">
+            <p className="section-label">Identity</p>
+            <h2 className="mt-1 text-lg font-black">Persona Snapshot</h2>
+            <dl className="mt-3 grid gap-2 text-sm text-slate-100 sm:grid-cols-2">
+              <div className="subpanel p-2">
+                <dt className="text-xs uppercase tracking-wide text-slate-400">Name</dt>
+                <dd className="font-semibold">{detail.persona.name}</dd>
+              </div>
+              <div className="subpanel p-2">
+                <dt className="text-xs uppercase tracking-wide text-slate-400">Handle</dt>
+                <dd className="font-semibold">@{detail.persona.handle}</dd>
+              </div>
+              <div className="subpanel p-2">
+                <dt className="text-xs uppercase tracking-wide text-slate-400">Age</dt>
+                <dd className="font-semibold">{detail.persona.age}</dd>
+              </div>
+              <div className="subpanel p-2">
+                <dt className="text-xs uppercase tracking-wide text-slate-400">City</dt>
+                <dd className="font-semibold">{detail.persona.city}</dd>
+              </div>
+              <div className="subpanel p-2 sm:col-span-2">
+                <dt className="text-xs uppercase tracking-wide text-slate-400">Niche · Vibe</dt>
+                <dd className="font-semibold">
+                  {detail.persona.niche} · {detail.persona.vibe}
+                </dd>
+              </div>
+            </dl>
+          </article>
+
+          <article className="panel p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="section-label">Positioning</p>
+                <h2 className="mt-1 text-lg font-black">Bio</h2>
+              </div>
+              <button type="button" onClick={() => void copyPrompt(profile?.bio || "")} className="copy-btn">
+                Copy
+              </button>
+            </div>
+            <pre className="data-scroll mt-3 whitespace-pre-wrap text-sm text-slate-100">{profile?.bio || "No bio generated yet."}</pre>
+          </article>
+
+          <article className="panel p-4 lg:col-span-2">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="section-label">Prompt System</p>
+                <h2 className="mt-1 text-lg font-black">Master Image Prompt Blueprint</h2>
+              </div>
+              <button type="button" onClick={() => void copyPrompt(profile?.prompt_blueprint || "")} className="copy-btn">
+                Copy Prompt
+              </button>
+            </div>
+            <pre className="data-scroll mt-3 whitespace-pre-wrap text-xs text-slate-100">
+              {profile?.prompt_blueprint || "No prompt blueprint yet."}
+            </pre>
+          </article>
+        </section>
+      ) : null}
+
+      {activeTab === "narrative" ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <CollapsibleBlock
+            title="Backstory"
+            subtitle="Narrative Arc"
+            content={profile?.backstory_md || "No backstory yet."}
+            onCopy={() => void copyPrompt(profile?.backstory_md || "")}
+            defaultOpen
+          />
+          <CollapsibleBlock
+            title="Future Plans & Strategy"
+            subtitle="Forward Plan"
+            content={`${profile?.future_plans_md || ""}\n\n${profile?.strategy_md || ""}`.trim() || "No strategy yet."}
+            onCopy={() => void copyPrompt(`${profile?.future_plans_md || ""}\n\n${profile?.strategy_md || ""}`.trim())}
+            defaultOpen
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "style" ? (
+        <section className="grid gap-4">
+          <CollapsibleBlock
+            title="Physical DNA"
+            subtitle="Style Core"
+            content={prettyJson(profile?.physical ?? {})}
+            onCopy={() => void copyPrompt(prettyJson(profile?.physical ?? {}))}
+            defaultOpen
+          />
+          <CollapsibleBlock
+            title="Wardrobe Prompt Library"
+            subtitle="Outfit Engine"
+            content={prettyJson(profile?.wardrobe ?? {})}
+            onCopy={() => void copyPrompt(prettyJson(profile?.wardrobe ?? {}))}
+            defaultOpen
+          />
+          <CollapsibleBlock
+            title="Beauty Prompt Library"
+            subtitle="Hair · Nails · Makeup"
+            content={prettyJson(profile?.beauty ?? {})}
+            onCopy={() => void copyPrompt(prettyJson(profile?.beauty ?? {}))}
+            defaultOpen
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "world" ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <CollapsibleBlock
+            title="World Context & Events"
+            subtitle="External Story Hooks"
+            content={prettyJson(profile?.world ?? {})}
+            onCopy={() => void copyPrompt(prettyJson(profile?.world ?? {}))}
+            defaultOpen
+          />
+          <CollapsibleBlock
+            title="Carousel Rules"
+            subtitle="Slide Consistency"
+            content={prettyJson(profile?.carousel_rules ?? {})}
+            onCopy={() => void copyPrompt(prettyJson(profile?.carousel_rules ?? {}))}
+            defaultOpen
+          />
+        </section>
+      ) : null}
+
+      {activeTab === "calendar" ? (
+        <section className="grid gap-4">
+          <article className="panel p-4">
+            <h2 className="text-lg font-black">Calendar Archive</h2>
+            {calendarArchive.length === 0 ? (
+              <p className="mt-2 subpanel px-3 py-2 text-sm text-slate-300">No saved months yet. Generate from dashboard first.</p>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <select
+                  className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
+                  value={selectedMonthKey}
+                  onChange={(e) => setSelectedMonthKey(e.target.value)}
+                >
+                  <option value="">Select month</option>
+                  {calendarArchive.map((entry) => (
+                    <option key={entry.id} value={monthKey(entry.year, entry.month)}>
+                      {entry.year}-{String(entry.month).padStart(2, "0")} · {entry.mode.toUpperCase()} · {entry.days_count} days
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const [selectedYear, selectedMonth] = selectedMonthKey.split("-").map(Number);
+                    if (selectedYear && selectedMonth) {
+                      void loadMonth(selectedYear, selectedMonth);
+                    }
+                  }}
+                  disabled={!selectedMonthKey || busyLoadMonth}
+                  className="copy-btn px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  {busyLoadMonth ? "Loading..." : "Load Month"}
+                </button>
+              </div>
+            )}
+          </article>
+
+          {loadedMonth ? (
+            <article className="panel p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-black">
+                  Loaded Calendar {loadedMonth.year}-{String(loadedMonth.month).padStart(2, "0")}
+                </h2>
+                <span className="rounded-md border border-slate-300/40 bg-slate-700/30 px-2 py-1 text-xs font-bold text-slate-100">
+                  {loadedMonth.mode.toUpperCase()}
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {loadedMonth.days.slice(0, 10).map((day) => (
+                  <details key={day.day} className="subpanel p-3">
+                    <summary className="cursor-pointer list-none">
+                      <p className="font-semibold text-slate-100">
+                        Day {day.day}: {day.theme} ({day.mood})
+                      </p>
+                    </summary>
+                    <ul className="mt-2 space-y-1 text-sm text-slate-100">
+                      {day.posts.slice(0, 3).map((post) => (
+                        <li key={post.id} className="subpanel px-2 py-1">
+                          [{post.time}] {post.scene_type} · {post.caption}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                ))}
+              </div>
+            </article>
+          ) : null}
+        </section>
+      ) : null}
+
+      {activeTab === "media" ? (
         <section className="panel p-4">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-lg font-black">
-              Loaded Calendar {loadedMonth.year}-{String(loadedMonth.month).padStart(2, "0")}
-            </h2>
-            <span className="rounded-md border border-cyan-300/40 px-2 py-1 text-xs font-bold text-cyan-100">
-              {loadedMonth.mode.toUpperCase()}
+            <div>
+              <h2 className="text-lg font-black">Media Studio</h2>
+              <p className="mt-1 text-xs text-slate-300">
+                Prompts are sourced from loaded calendar posts and slides for persona consistency.
+              </p>
+            </div>
+            <span className={`rounded-md border px-2 py-1 text-xs font-bold ${hasCalendarSource ? "border-emerald-300/40 bg-emerald-500/10 text-emerald-100" : "border-amber-300/40 bg-amber-500/10 text-amber-100"}`}>
+              {hasCalendarSource ? "Calendar source ready" : "Load calendar first"}
             </span>
           </div>
 
-          <div className="mt-3 space-y-3">
-            {loadedMonth.days.slice(0, 10).map((day) => (
-              <article key={day.day} className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3">
-                <p className="font-semibold">Day {day.day}: {day.theme} ({day.mood})</p>
-                <ul className="mt-2 space-y-1 text-sm text-slate-100">
-                  {day.posts.slice(0, 2).map((post) => (
-                    <li key={post.post_number}>[{post.time}] {post.scene_type} - {post.caption}</li>
+          {!hasCalendarSource ? (
+            <p className="mt-3 rounded-lg border border-amber-300/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              No calendar data loaded. Open the Calendar tab, load a saved month, then return here.
+            </p>
+          ) : null}
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <article className="subpanel p-3">
+              <h3 className="text-sm font-black uppercase tracking-wide text-slate-100">Generation Panel</h3>
+
+              <div className="mt-2 space-y-2">
+                <select
+                  className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
+                  value={selectedPostId}
+                  onChange={(e) => onSelectPost(e.target.value)}
+                  disabled={!hasCalendarSource}
+                >
+                  <option value="">Select post</option>
+                  {postOptions.map((post) => (
+                    <option key={post.id} value={post.id}>{post.label}</option>
                   ))}
-                </ul>
-                {day.posts[0]?.slides?.length ? (
-                  <p className="mt-2 text-xs text-cyan-100/90">
-                    Carousel ready: {day.posts[0].slides.length} slide prompts per post.
-                  </p>
+                </select>
+
+                {selectedPost ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPost.slides.length > 0 ? selectedPost.slides.map((slide) => (
+                      <button
+                        key={`${selectedPost.id}-${slide.slide_number}`}
+                        type="button"
+                        onClick={() => onSelectSlidePrompt(slide.prompt)}
+                        className="copy-btn"
+                      >
+                        Slide {slide.slide_number}
+                      </button>
+                    )) : (
+                      <button
+                        type="button"
+                        onClick={() => onSelectSlidePrompt(selectedPost.prompt)}
+                        className="copy-btn"
+                      >
+                        Use Post Prompt
+                      </button>
+                    )}
+                  </div>
                 ) : null}
-              </article>
-            ))}
+
+                <textarea
+                  className="min-h-36 w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs text-slate-100"
+                  value={selectedSlidePrompt}
+                  onChange={(e) => setSelectedSlidePrompt(e.target.value)}
+                  placeholder="Prompt for image generation"
+                />
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMediaMode("image")}
+                    className={`pill-btn ${mediaMode === "image" ? "pill-btn-active" : ""}`}
+                  >
+                    New Image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMediaMode("edit")}
+                    className={`pill-btn ${mediaMode === "edit" ? "pill-btn-active" : ""}`}
+                  >
+                    Edit Existing Image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copyPrompt(selectedSlidePrompt)}
+                    className="copy-btn"
+                  >
+                    Copy Prompt
+                  </button>
+                </div>
+
+                {mediaMode === "edit" ? (
+                  <select
+                    className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
+                    value={selectedSourceMediaId}
+                    onChange={(e) => setSelectedSourceMediaId(e.target.value)}
+                  >
+                    <option value="">Select source media</option>
+                    {completedMediaJobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {new Date(job.created_at).toLocaleString()} · {job.mode.toUpperCase()} · {job.model}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={generateMedia}
+                  disabled={busyMedia || !hasCalendarSource}
+                  className="w-full rounded-lg bg-sky-400 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+                >
+                  {busyMedia ? "Processing..." : mediaMode === "image" ? "Generate Image" : "Generate Edit"}
+                </button>
+              </div>
+            </article>
+
+            <article className="subpanel p-3">
+              <h3 className="text-sm font-black uppercase tracking-wide text-slate-100">Media Jobs</h3>
+              <div className="mt-2 max-h-[33rem] space-y-2 overflow-auto pr-1">
+                {mediaJobs.length === 0 ? (
+                  <p className="text-xs text-slate-300">No media generated yet.</p>
+                ) : (
+                  mediaJobs.map((job) => (
+                    <div key={job.id} className="subpanel p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`rounded-md border px-2 py-0.5 font-bold ${badgeTone(job.status)}`}>
+                          {job.mode.toUpperCase()} · {job.status.toUpperCase()}
+                        </span>
+                        <p className="text-slate-300">-{job.cost_credits} credits</p>
+                      </div>
+                      <p className="mt-1 text-slate-300">{new Date(job.created_at).toLocaleString()}</p>
+                      <p className="mt-1 line-clamp-3 text-slate-100">{job.prompt}</p>
+                      {job.output_url ? (
+                        <a href={job.output_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sky-200 underline">
+                          Open Output
+                        </a>
+                      ) : null}
+                      {job.error_message ? <p className="mt-1 text-rose-200">{job.error_message}</p> : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
           </div>
         </section>
       ) : null}
 
-      <section className="panel p-4">
-        <h2 className="text-lg font-black">Media Studio</h2>
-        <p className="mt-1 text-xs text-slate-300">Generate directly from saved calendar posts. Use edit mode for coherent carousel progression.</p>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <article className="rounded-lg border border-cyan-300/25 bg-slate-950/50 p-3">
-            <h3 className="text-sm font-black uppercase tracking-wide text-cyan-100">Generate</h3>
-
-            <div className="mt-2 space-y-2">
-              <select
-                className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
-                value={selectedPostId}
-                onChange={(e) => onSelectPost(e.target.value)}
-              >
-                <option value="">Select post</option>
-                {postOptions.map((post) => (
-                  <option key={post.id} value={post.id}>{post.label}</option>
-                ))}
-              </select>
-
-              {selectedPost ? (
-                <div className="flex flex-wrap gap-2">
-                  {selectedPost.slides.length > 0 ? selectedPost.slides.map((slide) => (
-                    <button
-                      key={`${selectedPost.id}-${slide.slide_number}`}
-                      type="button"
-                      onClick={() => onSelectSlidePrompt(slide.prompt)}
-                      className="rounded-md border border-cyan-300/35 px-2 py-1 text-xs font-bold text-cyan-100"
-                    >
-                      Slide {slide.slide_number}
-                    </button>
-                  )) : (
-                    <button
-                      type="button"
-                      onClick={() => onSelectSlidePrompt(selectedPost.prompt)}
-                      className="rounded-md border border-cyan-300/35 px-2 py-1 text-xs font-bold text-cyan-100"
-                    >
-                      Use Post Prompt
-                    </button>
-                  )}
-                </div>
-              ) : null}
-
-              <textarea
-                className="min-h-36 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-xs"
-                value={selectedSlidePrompt}
-                onChange={(e) => setSelectedSlidePrompt(e.target.value)}
-                placeholder="Prompt for image generation"
-              />
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMediaMode("image")}
-                  className={`rounded-lg border px-3 py-2 text-xs font-bold ${mediaMode === "image" ? "border-lime-300/60 bg-lime-500/10 text-lime-100" : "border-cyan-300/30 text-cyan-100"}`}
-                >
-                  New Image
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMediaMode("edit")}
-                  className={`rounded-lg border px-3 py-2 text-xs font-bold ${mediaMode === "edit" ? "border-lime-300/60 bg-lime-500/10 text-lime-100" : "border-cyan-300/30 text-cyan-100"}`}
-                >
-                  Edit Existing Image
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copyPrompt(selectedSlidePrompt)}
-                  className="rounded-lg border border-cyan-300/30 px-3 py-2 text-xs font-bold text-cyan-100"
-                >
-                  Copy Prompt
-                </button>
-              </div>
-
-              {mediaMode === "edit" ? (
-                <select
-                  className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
-                  value={selectedSourceMediaId}
-                  onChange={(e) => setSelectedSourceMediaId(e.target.value)}
-                >
-                  <option value="">Select source media</option>
-                  {completedMediaJobs.map((job) => (
-                    <option key={job.id} value={job.id}>
-                      {new Date(job.created_at).toLocaleString()} · {job.mode.toUpperCase()} · {job.model}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={generateMedia}
-                disabled={busyMedia}
-                className="w-full rounded-lg bg-orange-400 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
-              >
-                {busyMedia ? "Processing..." : mediaMode === "image" ? "Generate Image" : "Generate Edit"}
-              </button>
-            </div>
-          </article>
-
-          <article className="rounded-lg border border-cyan-300/25 bg-slate-950/50 p-3">
-            <h3 className="text-sm font-black uppercase tracking-wide text-cyan-100">Media Jobs</h3>
-            <div className="mt-2 max-h-96 space-y-2 overflow-auto pr-1">
-              {mediaJobs.length === 0 ? (
-                <p className="text-xs text-slate-300">No media generated yet.</p>
-              ) : (
-                mediaJobs.map((job) => (
-                  <div key={job.id} className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-2 text-xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-bold">{job.mode.toUpperCase()} · {job.status.toUpperCase()}</p>
-                      <p className="text-slate-300">-{job.cost_credits} credits</p>
-                    </div>
-                    <p className="mt-1 text-slate-300">{new Date(job.created_at).toLocaleString()}</p>
-                    <p className="mt-1 line-clamp-3 text-slate-100">{job.prompt}</p>
-                    {job.output_url ? (
-                      <a href={job.output_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-cyan-100 underline">
-                        Open Output
-                      </a>
-                    ) : null}
-                    {job.error_message ? <p className="mt-1 text-red-200">{job.error_message}</p> : null}
-                  </div>
-                ))
-              )}
-            </div>
-          </article>
-        </div>
-      </section>
-
-      {success ? <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 p-3 text-sm text-lime-100">{success}</p> : null}
-      {error ? <p className="rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
+      {success ? <p className="rounded-lg border border-emerald-300/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">{success}</p> : null}
+      {error ? <p className="rounded-lg border border-rose-300/35 bg-rose-500/10 p-3 text-sm text-rose-100">{error}</p> : null}
     </main>
   );
 }
