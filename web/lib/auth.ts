@@ -4,6 +4,8 @@ import Credentials from "next-auth/providers/credentials";
 import { API_URL } from "@/lib/api";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true,
   providers: [
     Credentials({
       name: "Credentials",

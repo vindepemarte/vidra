@@ -4,8 +4,6 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
-import { API_URL } from "@/lib/api";
-
 export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -17,7 +15,7 @@ export default function SignupPage() {
     event.preventDefault();
     setError("");
 
-    const signup = await fetch(`${API_URL}/api/auth/signup`, {
+    const signup = await fetch(`/api/internal/signup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, email, password })

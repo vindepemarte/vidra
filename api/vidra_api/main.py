@@ -34,6 +34,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url, "https://vidra.hellolexa.space", "http://localhost:3000"],
+    allow_origin_regex=r"https://([a-zA-Z0-9-]+\.)?hellolexa\.space",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
