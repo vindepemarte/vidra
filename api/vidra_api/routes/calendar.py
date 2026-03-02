@@ -1,3 +1,4 @@
+import asyncio
 import calendar as pycalendar
 import datetime as dt
 import logging
@@ -108,13 +109,15 @@ def _apply_profile_bundle(profile: PersonaProfile, bundle: PersonaProfileBundle)
     profile.updated_at = dt.datetime.utcnow()
 
 
-def _generate_drafts(persona: Persona, tier: str, month: int, year: int) -> tuple[list[DayDraft], str]:
+async def _generate_drafts(persona: Persona, tier: str, month: int, year: int) -> tuple[list[DayDraft], str]:
     days_cap = generation_days_for_tier(tier)
     mode_policy = generation_mode_for_tier(tier)
 
     if mode_policy == "llm" and settings.openrouter_api_key:
         try:
-            paid = PaidCalendarEngine.generate_month(
+            # Paid generation uses blocking external calls; run off the main event loop.
+            paid = await asyncio.to_thread(
+                PaidCalendarEngine.generate_month,
                 persona_name=persona.name,
                 niche=persona.niche,
                 city=persona.city,
@@ -127,7 +130,8 @@ def _generate_drafts(persona: Persona, tier: str, month: int, year: int) -> tupl
             logger.exception("Paid generation failed: %s", exc)
             raise RuntimeError("Paid generation failed. Check OpenRouter API/model configuration.") from exc
 
-    drafts = OfflineCalendarEngine.generate_month(
+    drafts = await asyncio.to_thread(
+        OfflineCalendarEngine.generate_month,
         persona_name=persona.name,
         niche=persona.niche,
         city=persona.city,
@@ -234,7 +238,7 @@ async def generate_calendar(
     if should_generate_profile:
         try:
             if expected_profile_mode == "llm":
-                bundle = build_llm_profile(persona)
+                bundle = await asyncio.to_thread(build_llm_profile, persona)
             else:
                 bundle = build_offline_profile(persona)
         except Exception:  # noqa: BLE001
@@ -267,7 +271,7 @@ async def generate_calendar(
         await db.flush()
 
     try:
-        drafts, mode = _generate_drafts(persona=persona, tier=tier, month=payload.month, year=payload.year)
+        drafts, mode = await _generate_drafts(persona=persona, tier=tier, month=payload.month, year=payload.year)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

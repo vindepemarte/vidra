@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from uuid import UUID
 
@@ -25,7 +26,7 @@ from vidra_api.schemas import (
 router = APIRouter(prefix="/personas", tags=["personas"])
 
 
-def _bundle_for_persona(persona: Persona, *, tier: str, mode: str) -> PersonaProfileBundle:
+async def _bundle_for_persona(persona: Persona, *, tier: str, mode: str) -> PersonaProfileBundle:
     if mode == "llm":
         if not settings.openrouter_api_key:
             raise HTTPException(
@@ -38,7 +39,8 @@ def _bundle_for_persona(persona: Persona, *, tier: str, mode: str) -> PersonaPro
                 detail="LLM profile generation is available only for PRO/MAX tiers.",
             )
         try:
-            return build_llm_profile(persona)
+            # Offload blocking LLM/network work to a thread so API health checks remain responsive.
+            return await asyncio.to_thread(build_llm_profile, persona)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -128,7 +130,7 @@ async def create_persona(
 
     mode = _auto_mode_for_tier(tier)
     try:
-        bundle = _bundle_for_persona(persona, tier=tier, mode=mode)
+        bundle = await _bundle_for_persona(persona, tier=tier, mode=mode)
     except HTTPException:
         # Persona creation should stay available even if paid profile generation fails.
         bundle = build_offline_profile(persona)
@@ -215,7 +217,7 @@ async def generate_persona_profile(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
-    bundle = _bundle_for_persona(persona, tier=tier, mode=mode)
+    bundle = await _bundle_for_persona(persona, tier=tier, mode=mode)
 
     profile = persona.profile
     if profile is None:
