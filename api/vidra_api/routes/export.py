@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from vidra_api.database import get_db
 from vidra_api.deps import get_current_user
-from vidra_api.models import CalendarDay, CalendarMonth, Persona, User
+from vidra_api.models import CalendarDay, CalendarMonth, Persona, Post, User
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -18,7 +18,7 @@ async def _load_month(db: AsyncSession, user_id: UUID, persona_id: UUID, year: i
     query = await db.execute(
         select(CalendarMonth)
         .join(Persona, Persona.id == CalendarMonth.persona_id)
-        .options(selectinload(CalendarMonth.days).selectinload(CalendarDay.posts))
+        .options(selectinload(CalendarMonth.days).selectinload(CalendarDay.posts).selectinload(Post.slides))
         .where(
             Persona.user_id == user_id,
             CalendarMonth.persona_id == persona_id,
@@ -50,6 +50,13 @@ async def export_markdown(
             out.write(f"- [{post.time}] Post {post.post_number} ({post.scene_type})\n")
             out.write(f"  - Caption: {post.caption}\n")
             out.write(f"  - Prompt: {post.prompt}\n")
+            if post.slides:
+                for slide in sorted(post.slides, key=lambda s: s.slide_number):
+                    out.write(
+                        f"  - Slide {slide.slide_number} Prompt: {slide.prompt}\n"
+                    )
+                    if slide.edit_instruction:
+                        out.write(f"    - Edit Instruction: {slide.edit_instruction}\n")
         out.write("\n")
 
     filename = f"calendar_{year}_{month:02d}.md"
@@ -87,6 +94,14 @@ async def export_json(
                         "caption": post.caption,
                         "prompt": post.prompt,
                         "hashtags": post.hashtags,
+                        "slides": [
+                            {
+                                "slide_number": slide.slide_number,
+                                "prompt": slide.prompt,
+                                "edit_instruction": slide.edit_instruction,
+                            }
+                            for slide in sorted(post.slides, key=lambda s: s.slide_number)
+                        ],
                     }
                     for post in sorted(day.posts, key=lambda p: p.post_number)
                 ],

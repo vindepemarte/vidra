@@ -65,6 +65,13 @@ class PostOut(BaseModel):
     caption: str
     prompt: str
     hashtags: str
+    slides: list["SlideOut"] = Field(default_factory=list)
+
+
+class SlideOut(BaseModel):
+    slide_number: int
+    prompt: str
+    edit_instruction: str | None = None
 
 
 class DayOut(BaseModel):
@@ -81,6 +88,14 @@ class MonthOut(BaseModel):
     year: int
     mode: str
     days: list[DayOut]
+
+
+class CalendarMonthSummaryOut(BaseModel):
+    id: UUID
+    month: int
+    year: int
+    mode: str
+    days_count: int
 
 
 class PlanOut(BaseModel):
@@ -125,3 +140,32 @@ class CheckoutRequest(BaseModel):
 
 class CheckoutSessionOut(BaseModel):
     url: str
+
+
+class PersonaProfileOut(BaseModel):
+    bio: str
+    backstory_md: str
+    future_plans_md: str
+    strategy_md: str
+    prompt_blueprint: str
+    physical: dict
+    wardrobe: dict
+    beauty: dict
+    world: dict
+    carousel_rules: dict
+    generated_mode: str
+
+
+class PersonaDetailOut(BaseModel):
+    persona: PersonaOut
+    profile: PersonaProfileOut | None = None
+    calendars: list[CalendarMonthSummaryOut]
+
+
+class PersonaProfileGenerateRequest(BaseModel):
+    mode: str = Field(pattern="^(offline|llm|auto)$", default="auto")
+
+
+class CalendarListOut(BaseModel):
+    persona_id: UUID
+    months: list[CalendarMonthSummaryOut]

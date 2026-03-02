@@ -41,6 +41,11 @@ class Persona(Base):
 
     user: Mapped[User] = relationship(back_populates="personas")
     months: Mapped[list["CalendarMonth"]] = relationship(back_populates="persona", cascade="all, delete-orphan")
+    profile: Mapped["PersonaProfile | None"] = relationship(
+        back_populates="persona",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class CalendarMonth(Base):
@@ -87,6 +92,43 @@ class Post(Base):
     hashtags: Mapped[str] = mapped_column(Text)
 
     day_ref: Mapped[CalendarDay] = relationship(back_populates="posts")
+    slides: Mapped[list["PostSlide"]] = relationship(back_populates="post", cascade="all, delete-orphan")
+
+
+class PostSlide(Base):
+    __tablename__ = "post_slides"
+    __table_args__ = (UniqueConstraint("post_id", "slide_number", name="uq_post_slide_number"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    slide_number: Mapped[int] = mapped_column(Integer)
+    prompt: Mapped[str] = mapped_column(Text)
+    edit_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    post: Mapped[Post] = relationship(back_populates="slides")
+
+
+class PersonaProfile(Base):
+    __tablename__ = "persona_profiles"
+    __table_args__ = (UniqueConstraint("persona_id", name="uq_profile_persona"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    persona_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("personas.id", ondelete="CASCADE"), index=True)
+    bio: Mapped[str] = mapped_column(Text, default="")
+    backstory_md: Mapped[str] = mapped_column(Text, default="")
+    future_plans_md: Mapped[str] = mapped_column(Text, default="")
+    strategy_md: Mapped[str] = mapped_column(Text, default="")
+    prompt_blueprint: Mapped[str] = mapped_column(Text, default="")
+    physical: Mapped[dict] = mapped_column(JSONB, default=dict)
+    wardrobe: Mapped[dict] = mapped_column(JSONB, default=dict)
+    beauty: Mapped[dict] = mapped_column(JSONB, default=dict)
+    world: Mapped[dict] = mapped_column(JSONB, default=dict)
+    carousel_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generated_mode: Mapped[str] = mapped_column(String(32), default="offline")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+    persona: Mapped[Persona] = relationship(back_populates="profile")
 
 
 class ApiUsage(Base):

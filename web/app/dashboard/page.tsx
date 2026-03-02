@@ -51,16 +51,47 @@ type MyPlan = {
   openrouter_model?: string | null;
 };
 
+type CalendarSlide = {
+  slide_number: number;
+  prompt: string;
+  edit_instruction?: string | null;
+};
+
+type CalendarPost = {
+  post_number: number;
+  time: string;
+  scene_type: string;
+  caption: string;
+  prompt: string;
+  hashtags: string;
+  slides: CalendarSlide[];
+};
+
+type CalendarDay = {
+  day: number;
+  theme: string;
+  mood: string;
+  posts: CalendarPost[];
+};
+
 type CalendarSummary = {
   month: number;
   year: number;
   mode: string;
-  days: Array<{
-    day: number;
-    theme: string;
-    mood: string;
-    posts: Array<{ post_number: number; time: string; scene_type: string; caption: string }>;
-  }>;
+  days: CalendarDay[];
+};
+
+type CalendarMonthSummary = {
+  id: string;
+  month: number;
+  year: number;
+  mode: string;
+  days_count: number;
+};
+
+type CalendarMonthList = {
+  persona_id: string;
+  months: CalendarMonthSummary[];
 };
 
 const now = new Date();
@@ -73,6 +104,10 @@ function tierRank(tier: string): number {
 
 function prettyTier(tier: string): string {
   return tier.toUpperCase();
+}
+
+function monthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
 }
 
 async function extractErrorMessage(res: Response): Promise<string> {
@@ -101,11 +136,15 @@ export default function DashboardPage() {
   const [selectedPersonaId, setSelectedPersonaId] = useState("");
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
+  const [selectedArchiveKey, setSelectedArchiveKey] = useState("");
   const [calendar, setCalendar] = useState<CalendarSummary | null>(null);
+  const [calendarArchive, setCalendarArchive] = useState<Record<string, CalendarMonthSummary[]>>({});
 
   const [loading, setLoading] = useState(true);
   const [busyCreate, setBusyCreate] = useState(false);
   const [busyGenerate, setBusyGenerate] = useState(false);
+  const [busyDeletePersonaId, setBusyDeletePersonaId] = useState<string | null>(null);
+  const [busyLoadMonth, setBusyLoadMonth] = useState(false);
   const [busyCheckoutTier, setBusyCheckoutTier] = useState<string | null>(null);
   const [busyPortal, setBusyPortal] = useState(false);
   const [forceRegenerate, setForceRegenerate] = useState(true);
@@ -121,6 +160,70 @@ export default function DashboardPage() {
     vibe: "Elegant, bold, authentic",
     template: "fashion"
   });
+
+  const refreshPersonaArchive = async (
+    personaId: string,
+    options?: { autoLoadLatest?: boolean; preserveCurrentMonth?: boolean }
+  ): Promise<CalendarMonthSummary[]> => {
+    if (!token || !personaId) return [];
+
+    const res = await fetch(`${API_URL}/api/calendar/${personaId}/months`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (!res.ok) {
+      throw new Error(await extractErrorMessage(res));
+    }
+
+    const payload = (await res.json()) as CalendarMonthList;
+    const months = payload.months ?? [];
+
+    setCalendarArchive((prev) => ({
+      ...prev,
+      [personaId]: months
+    }));
+
+    if (options?.autoLoadLatest && months[0]) {
+      const latest = months[0];
+      setMonth(latest.month);
+      setYear(latest.year);
+      setSelectedArchiveKey(monthKey(latest.year, latest.month));
+      await loadSavedMonth(personaId, latest.year, latest.month);
+    }
+
+    if (months.length === 0 && !options?.preserveCurrentMonth) {
+      setCalendar(null);
+      setSelectedArchiveKey("");
+    }
+
+    return months;
+  };
+
+  const loadSavedMonth = async (personaId: string, targetYear: number, targetMonth: number): Promise<void> => {
+    if (!token || !personaId) return;
+
+    try {
+      setBusyLoadMonth(true);
+      setError("");
+
+      const res = await fetch(`${API_URL}/api/calendar/${personaId}/${targetYear}/${targetMonth}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const data = (await res.json()) as CalendarSummary;
+      setCalendar(data);
+      setShowAllDays(false);
+      setSelectedArchiveKey(monthKey(targetYear, targetMonth));
+      setMonth(targetMonth);
+      setYear(targetYear);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot load saved month");
+    } finally {
+      setBusyLoadMonth(false);
+    }
+  };
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -158,7 +261,10 @@ export default function DashboardPage() {
         setPersonas(personasData);
 
         if (personasData[0]) {
-          setSelectedPersonaId((current) => current || personasData[0].id);
+          setSelectedPersonaId(personasData[0].id);
+        } else {
+          setSelectedPersonaId("");
+          setCalendar(null);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Cannot load dashboard");
@@ -169,6 +275,12 @@ export default function DashboardPage() {
 
     void boot();
   }, [router, status, token]);
+
+  useEffect(() => {
+    if (!token || !selectedPersonaId) return;
+
+    void refreshPersonaArchive(selectedPersonaId, { autoLoadLatest: true });
+  }, [token, selectedPersonaId]);
 
   const currentTier = useMemo(() => overview?.current_tier ?? "free", [overview?.current_tier]);
 
@@ -186,6 +298,11 @@ export default function DashboardPage() {
     if (!overview) return true;
     return overview.personas_count < overview.personas_limit;
   }, [overview]);
+
+  const currentArchive = useMemo(
+    () => calendarArchive[selectedPersonaId] ?? [],
+    [calendarArchive, selectedPersonaId]
+  );
 
   const generationStatus = useMemo(() => {
     if (!myPlan) return "Loading generation mode...";
@@ -239,12 +356,61 @@ export default function DashboardPage() {
     }
   }
 
+  async function deletePersona(personaId: string) {
+    if (!token || busyDeletePersonaId) return;
+
+    const persona = personas.find((item) => item.id === personaId);
+    const proceed = window.confirm(`Delete persona ${persona?.name ?? ""}? This will remove profiles and saved calendars.`);
+    if (!proceed) return;
+
+    try {
+      setBusyDeletePersonaId(personaId);
+      setError("");
+
+      const res = await fetch(`${API_URL}/api/personas/${personaId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const next = personas.filter((item) => item.id !== personaId);
+      setPersonas(next);
+
+      setCalendarArchive((prev) => {
+        const clone = { ...prev };
+        delete clone[personaId];
+        return clone;
+      });
+
+      if (overview) {
+        setOverview({ ...overview, personas_count: Math.max(0, overview.personas_count - 1) });
+      }
+
+      if (selectedPersonaId === personaId) {
+        const fallback = next[0]?.id ?? "";
+        setSelectedPersonaId(fallback);
+        if (!fallback) {
+          setCalendar(null);
+          setSelectedArchiveKey("");
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot delete persona");
+    } finally {
+      setBusyDeletePersonaId(null);
+    }
+  }
+
   async function generateMonth() {
     if (!token || !selectedPersonaId || busyGenerate) return;
 
     try {
       setBusyGenerate(true);
       setError("");
+      const alreadySaved = currentArchive.some((entry) => entry.year === year && entry.month === month);
 
       const res = await fetch(`${API_URL}/api/calendar/${selectedPersonaId}/generate`, {
         method: "POST",
@@ -260,8 +426,11 @@ export default function DashboardPage() {
       const data = (await res.json()) as CalendarSummary;
       setCalendar(data);
       setShowAllDays(false);
+      setSelectedArchiveKey(monthKey(year, month));
 
-      if (overview) {
+      await refreshPersonaArchive(selectedPersonaId, { preserveCurrentMonth: true });
+
+      if (overview && !alreadySaved) {
         setOverview({ ...overview, generated_months_count: overview.generated_months_count + 1 });
       }
     } catch (err) {
@@ -269,6 +438,13 @@ export default function DashboardPage() {
     } finally {
       setBusyGenerate(false);
     }
+  }
+
+  async function loadSelectedArchiveMonth() {
+    if (!selectedPersonaId || !selectedArchiveKey) return;
+    const [selectedYear, selectedMonth] = selectedArchiveKey.split("-").map(Number);
+    if (!selectedYear || !selectedMonth) return;
+    await loadSavedMonth(selectedPersonaId, selectedYear, selectedMonth);
   }
 
   async function startCheckout(targetTier: string) {
@@ -436,19 +612,42 @@ export default function DashboardPage() {
               <p className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3 text-sm text-slate-300">No personas yet.</p>
             ) : (
               personas.map((persona) => (
-                <button
+                <div
                   key={persona.id}
-                  type="button"
-                  onClick={() => setSelectedPersonaId(persona.id)}
-                  className={`w-full rounded-lg border px-3 py-2 text-left ${
+                  className={`rounded-lg border px-3 py-2 ${
                     selectedPersonaId === persona.id
                       ? "border-cyan-300/70 bg-cyan-500/15"
                       : "border-cyan-300/20 bg-slate-950/50"
                   }`}
                 >
-                  <p className="font-bold">{persona.name}</p>
-                  <p className="text-xs text-slate-300">@{persona.handle} · {persona.city} · {persona.niche}</p>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPersonaId(persona.id);
+                      setSelectedArchiveKey("");
+                    }}
+                    className="w-full text-left"
+                  >
+                    <p className="font-bold">{persona.name}</p>
+                    <p className="text-xs text-slate-300">@{persona.handle} · {persona.city} · {persona.niche}</p>
+                  </button>
+                  <div className="mt-2 flex gap-2">
+                    <Link
+                      href={`/persona/${persona.id}`}
+                      className="rounded-md border border-cyan-300/40 px-2 py-1 text-xs font-bold text-cyan-100"
+                    >
+                      Open Persona Page
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => deletePersona(persona.id)}
+                      disabled={busyDeletePersonaId !== null}
+                      className="rounded-md border border-red-300/40 px-2 py-1 text-xs font-bold text-red-200 disabled:opacity-50"
+                    >
+                      {busyDeletePersonaId === persona.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
               ))
             )}
           </div>
@@ -497,7 +696,7 @@ export default function DashboardPage() {
                 checked={forceRegenerate}
                 onChange={(e) => setForceRegenerate(e.target.checked)}
               />
-              Regenerate month if it already exists (recommended after plan change)
+              Force regenerate this month (recommended after persona/profile changes)
             </label>
 
             <button
@@ -510,6 +709,40 @@ export default function DashboardPage() {
             </button>
           </div>
         </article>
+      </section>
+
+      <section className="panel p-4">
+        <h2 className="text-lg font-black">Saved Calendars</h2>
+        {currentArchive.length === 0 ? (
+          <p className="mt-2 rounded-lg border border-cyan-300/20 bg-slate-950/50 px-3 py-2 text-sm text-slate-300">
+            No saved month for this persona yet.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <select
+                className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                value={selectedArchiveKey}
+                onChange={(e) => setSelectedArchiveKey(e.target.value)}
+              >
+                <option value="">Select saved month</option>
+                {currentArchive.map((entry) => (
+                  <option key={entry.id} value={monthKey(entry.year, entry.month)}>
+                    {entry.year}-{String(entry.month).padStart(2, "0")} · {entry.mode.toUpperCase()} · {entry.days_count} days
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={loadSelectedArchiveMonth}
+                disabled={!selectedArchiveKey || busyLoadMonth}
+                className="rounded-lg border border-cyan-300/40 px-4 py-2 text-sm font-bold text-cyan-100 disabled:opacity-50"
+              >
+                {busyLoadMonth ? "Loading..." : "Load Month"}
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {error ? <p className="rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
@@ -538,6 +771,11 @@ export default function DashboardPage() {
                     <li key={post.post_number}>[{post.time}] {post.scene_type} - {post.caption}</li>
                   ))}
                 </ul>
+                {day.posts[0]?.slides?.length ? (
+                  <p className="mt-2 text-xs text-cyan-100/90">
+                    Carousel blueprint ready: {day.posts[0].slides.length} slide prompts saved per post.
+                  </p>
+                ) : null}
               </article>
             ))}
           </div>
