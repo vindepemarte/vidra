@@ -40,7 +40,18 @@ async def _bundle_for_persona(persona: Persona, *, tier: str, mode: str) -> Pers
             )
         try:
             # Offload blocking LLM/network work to a thread so API health checks remain responsive.
-            return await asyncio.to_thread(build_llm_profile, persona)
+            return await asyncio.wait_for(
+                asyncio.to_thread(build_llm_profile, persona),
+                timeout=settings.profile_generation_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=(
+                    "LLM profile generation timed out. "
+                    "Try again or switch model, or use offline mode for immediate output."
+                ),
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -217,7 +228,14 @@ async def generate_persona_profile(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
-    bundle = await _bundle_for_persona(persona, tier=tier, mode=mode)
+    try:
+        bundle = await _bundle_for_persona(persona, tier=tier, mode=mode)
+    except HTTPException as exc:
+        # In auto mode keep UX reliable: fall back to offline profile instead of hanging/failing.
+        if requested_mode == "auto":
+            bundle = build_offline_profile(persona)
+        else:
+            raise exc
 
     profile = persona.profile
     if profile is None:

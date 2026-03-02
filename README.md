@@ -64,6 +64,10 @@ Recommended provider env vars:
 
 - `OPENROUTER_API_KEY=...`
 - `OPENROUTER_MODEL=anthropic/claude-sonnet-4-20250514` (or preferred model)
+- `OPENROUTER_TIMEOUT_SECONDS=45`
+- `OPENROUTER_MAX_RETRIES=1`
+- `PROFILE_GENERATION_TIMEOUT_SECONDS=180`
+- `CALENDAR_GENERATION_TIMEOUT_SECONDS=180`
 - `FAL_API_KEY=...` (platform key, optional if BYOK only)
 - `FAL_IMAGE_MODEL=fal-ai/flux/schnell`
 - `FAL_EDIT_MODEL=fal-ai/flux-lora/image-edit`

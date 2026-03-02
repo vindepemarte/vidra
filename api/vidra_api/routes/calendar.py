@@ -116,16 +116,22 @@ async def _generate_drafts(persona: Persona, tier: str, month: int, year: int) -
     if mode_policy == "llm" and settings.openrouter_api_key:
         try:
             # Paid generation uses blocking external calls; run off the main event loop.
-            paid = await asyncio.to_thread(
-                PaidCalendarEngine.generate_month,
-                persona_name=persona.name,
-                niche=persona.niche,
-                city=persona.city,
-                month=month,
-                year=year,
-                tier=tier,
+            paid = await asyncio.wait_for(
+                asyncio.to_thread(
+                    PaidCalendarEngine.generate_month,
+                    persona_name=persona.name,
+                    niche=persona.niche,
+                    city=persona.city,
+                    month=month,
+                    year=year,
+                    tier=tier,
+                ),
+                timeout=settings.calendar_generation_timeout_seconds,
             )
             return paid.days[:days_cap], f"llm_{tier}"
+        except asyncio.TimeoutError as exc:
+            logger.exception("Paid generation timed out")
+            raise RuntimeError("Paid generation timed out. Try again with a faster model or retry shortly.") from exc
         except Exception as exc:  # noqa: BLE001
             logger.exception("Paid generation failed: %s", exc)
             raise RuntimeError("Paid generation failed. Check OpenRouter API/model configuration.") from exc
@@ -238,7 +244,10 @@ async def generate_calendar(
     if should_generate_profile:
         try:
             if expected_profile_mode == "llm":
-                bundle = await asyncio.to_thread(build_llm_profile, persona)
+                bundle = await asyncio.wait_for(
+                    asyncio.to_thread(build_llm_profile, persona),
+                    timeout=settings.profile_generation_timeout_seconds,
+                )
             else:
                 bundle = build_offline_profile(persona)
         except Exception:  # noqa: BLE001

@@ -166,6 +166,8 @@ export default function PersonaPage() {
   const [loading, setLoading] = useState(true);
   const [busyLoadMonth, setBusyLoadMonth] = useState(false);
   const [busyRegenerate, setBusyRegenerate] = useState<string | null>(null);
+  const [regenerateStartedAt, setRegenerateStartedAt] = useState<number | null>(null);
+  const [regenerateElapsedSec, setRegenerateElapsedSec] = useState(0);
   const [busyDelete, setBusyDelete] = useState(false);
   const [busyMedia, setBusyMedia] = useState(false);
   const [error, setError] = useState("");
@@ -195,6 +197,19 @@ export default function PersonaPage() {
     () => mediaJobs.filter((job) => job.status === "completed" && job.output_url),
     [mediaJobs]
   );
+
+  useEffect(() => {
+    if (!busyRegenerate || !regenerateStartedAt) {
+      setRegenerateElapsedSec(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setRegenerateElapsedSec(Math.max(0, Math.floor((Date.now() - regenerateStartedAt) / 1000)));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [busyRegenerate, regenerateStartedAt]);
 
   async function loadMediaJobs(): Promise<void> {
     if (!token || !personaId) return;
@@ -278,8 +293,9 @@ export default function PersonaPage() {
 
     try {
       setBusyRegenerate(mode);
+      setRegenerateStartedAt(Date.now());
       setError("");
-      setSuccess("");
+      setSuccess("Generating profile. This can take up to 2-4 minutes depending on model load.");
 
       const res = await fetch(`${API_URL}/api/personas/${personaId}/profile/generate`, {
         method: "POST",
@@ -297,6 +313,7 @@ export default function PersonaPage() {
       setError(err instanceof Error ? err.message : "Cannot regenerate profile");
     } finally {
       setBusyRegenerate(null);
+      setRegenerateStartedAt(null);
     }
   }
 
@@ -514,6 +531,11 @@ export default function PersonaPage() {
               {busyRegenerate === "llm" ? "Generating..." : "Force LLM"}
             </button>
           </div>
+          {busyRegenerate ? (
+            <p className="mt-3 rounded-lg border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+              Profile generation in progress ({regenerateElapsedSec}s). Keep this tab open. If it exceeds ~4 minutes, it will timeout safely.
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={deletePersona}
