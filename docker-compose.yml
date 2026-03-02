@@ -22,7 +22,11 @@ services:
     environment:
       APP_ENV: production
       FRONTEND_URL: ${FRONTEND_URL:-https://vidra.hellolexa.space}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-vidra}:${POSTGRES_PASSWORD:-vidra_secure_password}@postgres:5432/${POSTGRES_DB:-vidra}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-vidra}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-vidra_secure_password}
+      DB_NAME: ${POSTGRES_DB:-vidra}
       JWT_SECRET: ${JWT_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

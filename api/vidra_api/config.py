@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 
 class Settings(BaseSettings):
@@ -8,7 +9,12 @@ class Settings(BaseSettings):
     app_env: str = "development"
     frontend_url: str = "http://localhost:3000"
 
-    database_url: str = "postgresql+asyncpg://vidra:vidra@postgres:5432/vidra"
+    database_url: str | None = None
+    db_host: str = "postgres"
+    db_port: int = 5432
+    db_user: str = "vidra"
+    db_password: str = "vidra"
+    db_name: str = "vidra"
 
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
@@ -21,3 +27,15 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if not settings.database_url:
+    settings.database_url = str(
+        URL.create(
+            drivername="postgresql+asyncpg",
+            username=settings.db_user,
+            password=settings.db_password,
+            host=settings.db_host,
+            port=settings.db_port,
+            database=settings.db_name,
+        )
+    )
