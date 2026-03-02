@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 
 import { LogoutButton } from "@/components/logout-button";
 import { API_URL } from "@/lib/api";
+import { trackEvent } from "@/lib/events";
 
 type MyPlan = {
   current_tier: string;
@@ -16,6 +17,8 @@ type MyPlan = {
   generation_mode: string;
   openrouter_enabled?: boolean;
   openrouter_model?: string | null;
+  credits_balance?: number;
+  included_credits?: number;
 };
 
 type Plan = {
@@ -27,6 +30,47 @@ type Plan = {
   limits: { personas: number; generation_days: number };
   generation_mode: string;
 };
+
+type CreditWallet = {
+  balance_credits: number;
+  included_monthly_credits: number;
+};
+
+type CreditLedgerEntry = {
+  id: string;
+  delta: number;
+  reason: string;
+  source_type: string;
+  source_id: string;
+  created_at: string;
+};
+
+type CreditLedger = {
+  entries: CreditLedgerEntry[];
+};
+
+type ApiKeyMask = {
+  provider: "openrouter" | "fal";
+  configured: boolean;
+  masked_value?: string | null;
+};
+
+type ApiKeyList = {
+  keys: ApiKeyMask[];
+};
+
+type TopupPack = {
+  id: "starter" | "growth" | "scale";
+  name: string;
+  credits: number;
+  price: string;
+};
+
+const TOPUP_PACKS: TopupPack[] = [
+  { id: "starter", name: "Starter", credits: 500, price: "€7" },
+  { id: "growth", name: "Growth", credits: 1500, price: "€19" },
+  { id: "scale", name: "Scale", credits: 5000, price: "€59" }
+];
 
 function tierRank(tier: string): number {
   if (tier === "max") return 3;
@@ -52,10 +96,19 @@ export default function SettingsPage() {
 
   const [myPlan, setMyPlan] = useState<MyPlan | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [wallet, setWallet] = useState<CreditWallet | null>(null);
+  const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKeyMask[]>([]);
+
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({ openrouter: "", fal: "" });
   const [loading, setLoading] = useState(true);
   const [busyCheckoutTier, setBusyCheckoutTier] = useState<string | null>(null);
   const [busyPortal, setBusyPortal] = useState(false);
+  const [busyTopup, setBusyTopup] = useState<string | null>(null);
+  const [busySaveProvider, setBusySaveProvider] = useState<string | null>(null);
+  const [busyDeleteProvider, setBusyDeleteProvider] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -69,19 +122,37 @@ export default function SettingsPage() {
         setLoading(true);
         setError("");
 
-        const [myPlanRes, plansRes] = await Promise.all([
+        const [myPlanRes, plansRes, walletRes, ledgerRes, keysRes] = await Promise.all([
           fetch(`${API_URL}/api/plans/me`, { headers: { Authorization: `Bearer ${token}` } }),
-          fetch(`${API_URL}/api/plans`)
+          fetch(`${API_URL}/api/plans`),
+          fetch(`${API_URL}/api/credits/wallet`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/credits/ledger`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/account/api-keys`, { headers: { Authorization: `Bearer ${token}` } })
         ]);
 
         if (!myPlanRes.ok) throw new Error(await extractErrorMessage(myPlanRes));
         if (!plansRes.ok) throw new Error(await extractErrorMessage(plansRes));
+        if (!walletRes.ok) throw new Error(await extractErrorMessage(walletRes));
+        if (!ledgerRes.ok) throw new Error(await extractErrorMessage(ledgerRes));
+        if (!keysRes.ok) throw new Error(await extractErrorMessage(keysRes));
 
         const myPlanData = (await myPlanRes.json()) as MyPlan;
         const plansData = (await plansRes.json()) as { plans: Plan[] };
+        const walletData = (await walletRes.json()) as CreditWallet;
+        const ledgerData = (await ledgerRes.json()) as CreditLedger;
+        const keysData = (await keysRes.json()) as ApiKeyList;
 
         setMyPlan(myPlanData);
         setPlans(plansData.plans);
+        setWallet(walletData);
+        setLedger(ledgerData.entries);
+        setApiKeys(keysData.keys);
+
+        const query = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+        const billing = query?.get("billing");
+        const credits = query?.get("credits");
+        if (billing === "success") setSuccess("Subscription checkout completed. Stripe webhook will sync your plan shortly.");
+        if (credits === "success") setSuccess("Credit top-up completed. Balance will update after webhook confirmation.");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Cannot load settings");
       } finally {
@@ -97,18 +168,35 @@ export default function SettingsPage() {
     return plans.filter((plan) => tierRank(plan.id) > tierRank(myPlan.current_tier));
   }, [plans, myPlan]);
 
+  async function refreshCreditsAndKeys(): Promise<void> {
+    if (!token) return;
+    const [walletRes, ledgerRes, keysRes, myPlanRes] = await Promise.all([
+      fetch(`${API_URL}/api/credits/wallet`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${API_URL}/api/credits/ledger`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${API_URL}/api/account/api-keys`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${API_URL}/api/plans/me`, { headers: { Authorization: `Bearer ${token}` } })
+    ]);
+
+    if (walletRes.ok) setWallet((await walletRes.json()) as CreditWallet);
+    if (ledgerRes.ok) setLedger(((await ledgerRes.json()) as CreditLedger).entries);
+    if (keysRes.ok) setApiKeys(((await keysRes.json()) as ApiKeyList).keys);
+    if (myPlanRes.ok) setMyPlan((await myPlanRes.json()) as MyPlan);
+  }
+
   async function startCheckout(targetTier: string) {
     if (!token || busyCheckoutTier) return;
 
     try {
       setBusyCheckoutTier(targetTier);
       setError("");
+      setSuccess("");
 
       const res = await fetch(`${API_URL}/api/billing/checkout`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
+          "Idempotency-Key": `${Date.now()}-${targetTier}`
         },
         body: JSON.stringify({ tier: targetTier })
       });
@@ -116,6 +204,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(await extractErrorMessage(res));
 
       const payload = (await res.json()) as { url: string };
+      await trackEvent("upgrade_clicked", { target_tier: targetTier }, token);
       window.location.href = payload.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot open checkout");
@@ -146,17 +235,105 @@ export default function SettingsPage() {
     }
   }
 
+  async function startTopup(packId: TopupPack["id"]) {
+    if (!token || busyTopup) return;
+
+    try {
+      setBusyTopup(packId);
+      setError("");
+      setSuccess("");
+
+      const res = await fetch(`${API_URL}/api/credits/topup/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "Idempotency-Key": `${Date.now()}-${packId}`
+        },
+        body: JSON.stringify({ pack_id: packId })
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const payload = (await res.json()) as { url: string };
+      await trackEvent("checkout_started", { mode: "topup", pack: packId }, token);
+      window.location.href = payload.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot open top-up checkout");
+      setBusyTopup(null);
+    }
+  }
+
+  async function saveApiKey(provider: "openrouter" | "fal") {
+    if (!token || busySaveProvider) return;
+
+    const value = (keyInputs[provider] || "").trim();
+    if (!value) {
+      setError(`Enter a ${provider.toUpperCase()} key first.`);
+      return;
+    }
+
+    try {
+      setBusySaveProvider(provider);
+      setError("");
+      setSuccess("");
+
+      const res = await fetch(`${API_URL}/api/account/api-keys/${provider}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ api_key: value })
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      setSuccess(`${provider.toUpperCase()} key saved.`);
+      setKeyInputs((prev) => ({ ...prev, [provider]: "" }));
+      await refreshCreditsAndKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot save API key");
+    } finally {
+      setBusySaveProvider(null);
+    }
+  }
+
+  async function deleteApiKey(provider: "openrouter" | "fal") {
+    if (!token || busyDeleteProvider) return;
+
+    try {
+      setBusyDeleteProvider(provider);
+      setError("");
+      setSuccess("");
+
+      const res = await fetch(`${API_URL}/api/account/api-keys/${provider}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      setSuccess(`${provider.toUpperCase()} key removed.`);
+      await refreshCreditsAndKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot remove API key");
+    } finally {
+      setBusyDeleteProvider(null);
+    }
+  }
+
   if (status === "loading" || loading) {
-    return <main className="mx-auto min-h-screen w-full max-w-5xl px-4 py-6">Loading settings...</main>;
+    return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading settings...</main>;
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-3 py-5 sm:px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-3 py-5 sm:px-6">
       <section className="panel p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Account & Billing</p>
-            <h1 className="mt-1 text-2xl font-black">Settings</h1>
+            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Vidra by Lexa AI</p>
+            <h1 className="mt-1 text-2xl font-black">Settings & Billing</h1>
           </div>
           <div className="flex gap-2">
             <Link href="/dashboard" className="rounded-lg border border-cyan-300/40 px-3 py-1 text-xs font-bold text-cyan-100">
@@ -168,66 +345,176 @@ export default function SettingsPage() {
 
         {myPlan ? (
           <div className="mt-3 rounded-lg border border-cyan-300/25 bg-slate-950/55 p-3 text-sm text-slate-100">
-            Current tier: <span className="font-black">{myPlan.current_tier.toUpperCase()}</span> · Limits: {myPlan.personas_limit} persona(s), {myPlan.generation_days_limit} days generation, {myPlan.generation_mode.toUpperCase()} mode
+            Tier: <span className="font-black">{myPlan.current_tier.toUpperCase()}</span> · Limits: {myPlan.personas_limit} persona(s), {myPlan.generation_days_limit} days generation, {myPlan.generation_mode.toUpperCase()} mode
           </div>
         ) : null}
 
         {myPlan?.openrouter_model ? (
           <p className="mt-2 text-xs text-cyan-100">Active paid model: {myPlan.openrouter_model}</p>
         ) : myPlan?.current_tier !== "free" ? (
-          <p className="mt-2 text-xs text-orange-200">Paid tier active but OpenRouter key is missing, generation will fallback to offline.</p>
+          <p className="mt-2 text-xs text-orange-200">Paid tier active but OpenRouter key is missing, generation can fallback to offline.</p>
         ) : null}
+      </section>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {upgradeOptions.length > 0 ? (
-            upgradeOptions.map((plan) => (
+      <section className="grid gap-4 lg:grid-cols-2">
+        <article className="panel p-4">
+          <h2 className="text-lg font-black">Plans</h2>
+          <div className="mt-3 grid gap-2">
+            {plans.map((plan) => (
+              <div key={plan.id} className={`rounded-lg border p-3 ${plan.id === myPlan?.current_tier ? "border-lime-300/50 bg-lime-500/10" : "border-cyan-300/25 bg-slate-950/45"}`}>
+                <div className="flex items-center justify-between">
+                  <p className="font-black">{plan.name}</p>
+                  <p className="text-xs font-bold text-cyan-100">€{plan.monthly_price_eur}/mo</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-300">{plan.tagline}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {upgradeOptions.length > 0 ? (
+              upgradeOptions.map((plan) => (
+                <button
+                  key={plan.id}
+                  type="button"
+                  onClick={() => startCheckout(plan.id)}
+                  disabled={busyCheckoutTier !== null}
+                  className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+                >
+                  {busyCheckoutTier === plan.id ? "Opening checkout..." : `Upgrade to ${plan.name}`}
+                </button>
+              ))
+            ) : (
+              <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">MAX active.</p>
+            )}
+
+            {myPlan?.current_tier !== "free" ? (
               <button
-                key={plan.id}
                 type="button"
-                onClick={() => startCheckout(plan.id)}
-                disabled={busyCheckoutTier !== null}
-                className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+                onClick={openPortal}
+                disabled={busyPortal}
+                className="rounded-lg border border-cyan-300/40 px-4 py-2 text-sm font-bold text-cyan-100 disabled:opacity-50"
               >
-                {busyCheckoutTier === plan.id ? "Opening checkout..." : `Upgrade to ${plan.name}`}
+                {busyPortal ? "Opening portal..." : "Manage Stripe Billing"}
               </button>
-            ))
-          ) : (
-            <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">MAX active.</p>
-          )}
+            ) : null}
+          </div>
+        </article>
 
-          {myPlan?.current_tier !== "free" ? (
-            <button
-              type="button"
-              onClick={openPortal}
-              disabled={busyPortal}
-              className="rounded-lg border border-cyan-300/40 px-4 py-2 text-sm font-bold text-cyan-100 disabled:opacity-50"
-            >
-              {busyPortal ? "Opening portal..." : "Manage Billing"}
-            </button>
-          ) : null}
+        <article className="panel p-4">
+          <h2 className="text-lg font-black">Credits Wallet</h2>
+          <div className="mt-3 rounded-lg border border-cyan-300/25 bg-slate-950/55 p-3 text-sm text-slate-100">
+            Balance: <span className="font-black">{wallet?.balance_credits ?? 0}</span> credits
+            <br />
+            Included monthly: <span className="font-black">{wallet?.included_monthly_credits ?? 0}</span> credits
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {TOPUP_PACKS.map((pack) => (
+              <button
+                key={pack.id}
+                type="button"
+                onClick={() => startTopup(pack.id)}
+                disabled={busyTopup !== null}
+                className="rounded-lg border border-cyan-300/35 bg-slate-950/50 p-3 text-left disabled:opacity-50"
+              >
+                <p className="font-black">{pack.name}</p>
+                <p className="text-xs text-slate-300">{pack.credits} credits</p>
+                <p className="mt-1 text-sm font-bold text-cyan-100">{busyTopup === pack.id ? "Opening..." : pack.price}</p>
+              </button>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="panel p-4">
+        <h2 className="text-lg font-black">Provider Keys (BYOK)</h2>
+        <p className="mt-1 text-xs text-slate-300">If a BYOK key is present, Vidra uses it first. Otherwise it uses platform keys and credit billing.</p>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {(["openrouter", "fal"] as const).map((provider) => {
+            const config = apiKeys.find((item) => item.provider === provider);
+            return (
+              <article key={provider} className="rounded-lg border border-cyan-300/25 bg-slate-950/50 p-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-black uppercase">{provider}</h3>
+                  <p className="text-xs text-slate-300">
+                    {config?.configured ? `Configured (${config.masked_value || "****"})` : "Not configured"}
+                  </p>
+                </div>
+                <input
+                  type="password"
+                  value={keyInputs[provider] || ""}
+                  onChange={(e) => setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
+                  className="mt-2 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                  placeholder={`Paste ${provider.toUpperCase()} key`}
+                />
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => saveApiKey(provider)}
+                    disabled={busySaveProvider !== null}
+                    className="rounded-lg bg-cyan-400 px-3 py-2 text-xs font-black text-slate-950 disabled:opacity-50"
+                  >
+                    {busySaveProvider === provider ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteApiKey(provider)}
+                    disabled={busyDeleteProvider !== null}
+                    className="rounded-lg border border-red-300/40 px-3 py-2 text-xs font-bold text-red-200 disabled:opacity-50"
+                  >
+                    {busyDeleteProvider === provider ? "Removing..." : "Remove"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
       <section className="panel p-4">
-        <h2 className="text-lg font-black">Plan Comparison</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {plans.map((plan) => (
-            <article key={plan.id} className="rounded-lg border border-cyan-300/25 bg-slate-950/50 p-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-black">{plan.name}</h3>
-                <p className="text-xs font-bold text-cyan-100">€{plan.monthly_price_eur}/mo</p>
-              </div>
-              <p className="mt-1 text-xs text-slate-300">{plan.tagline}</p>
-              <ul className="mt-2 space-y-1 text-xs text-slate-100">
-                {plan.outcomes.slice(0, 3).map((line) => (
-                  <li key={line}>• {line}</li>
+        <h2 className="text-lg font-black">Recent Credit Ledger</h2>
+        {ledger.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-300">No credit operations yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full text-left text-xs">
+              <thead>
+                <tr className="text-slate-300">
+                  <th className="py-2">Date</th>
+                  <th className="py-2">Delta</th>
+                  <th className="py-2">Reason</th>
+                  <th className="py-2">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ledger.slice(0, 12).map((entry) => (
+                  <tr key={entry.id} className="border-t border-cyan-300/15">
+                    <td className="py-2">{new Date(entry.created_at).toLocaleString()}</td>
+                    <td className={`py-2 font-bold ${entry.delta >= 0 ? "text-lime-200" : "text-orange-200"}`}>
+                      {entry.delta >= 0 ? `+${entry.delta}` : entry.delta}
+                    </td>
+                    <td className="py-2 text-slate-100">{entry.reason}</td>
+                    <td className="py-2 text-slate-300">{entry.source_type}</td>
+                  </tr>
                 ))}
-              </ul>
-            </article>
-          ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="panel p-4 text-sm">
+        <h2 className="text-lg font-black">Legal & Consent</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Link href="/legal/terms" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">Terms</Link>
+          <Link href="/legal/privacy" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">Privacy</Link>
+          <Link href="/legal/cookies" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">Cookies</Link>
         </div>
       </section>
 
+      {success ? <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 p-3 text-sm text-lime-100">{success}</p> : null}
       {error ? <p className="rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
     </main>
   );

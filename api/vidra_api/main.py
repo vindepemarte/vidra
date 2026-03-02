@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from vidra_api.config import settings
 from vidra_api.database import Base, engine
-from vidra_api.routes import auth, billing, calendar, dashboard, export, personas, plans
+from vidra_api.routes import account, auth, billing, calendar, consent, credits, dashboard, events, export, media, onboarding, personas, plans
 
 logger = logging.getLogger("vidra_api")
 
@@ -15,6 +15,10 @@ logger = logging.getLogger("vidra_api")
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Coolify can start API right after Postgres turns healthy; add retry to avoid startup races.
+    if not settings.auto_create_tables:
+        yield
+        return
+
     max_attempts = 20
     for attempt in range(1, max_attempts + 1):
         try:
@@ -33,8 +37,14 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "https://vidra.hellolexa.space", "http://localhost:3000"],
-    allow_origin_regex=r"https://([a-zA-Z0-9-]+\.)?hellolexa\.space",
+    allow_origins=[
+        settings.frontend_url,
+        "https://vidra.life",
+        "https://api.vidra.life",
+        "https://vidra.hellolexa.space",
+        "http://localhost:3000",
+    ],
+    allow_origin_regex=r"https://([a-zA-Z0-9-]+\.)?(vidra\.life|hellolexa\.space)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,6 +57,12 @@ app.include_router(export.router, prefix="/api")
 app.include_router(billing.router, prefix="/api")
 app.include_router(plans.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+app.include_router(onboarding.router, prefix="/api")
+app.include_router(credits.router, prefix="/api")
+app.include_router(account.router, prefix="/api")
+app.include_router(consent.router, prefix="/api")
+app.include_router(events.router, prefix="/api")
+app.include_router(media.router, prefix="/api")
 
 
 @app.get("/health")

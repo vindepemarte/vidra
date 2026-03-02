@@ -17,12 +17,12 @@ const FALLBACK_PLANS: Plan[] = [
     id: "free",
     name: "FREE",
     monthly_price_eur: 0,
-    tagline: "Launch your first AI creator and stay consistent every week.",
+    tagline: "Start one creator identity with zero external API cost.",
     outcomes: [
-      "1 creator persona",
-      "7-day content sprint generation",
-      "6 posts/day with captions and prompts",
-      "Export-ready output"
+      "1 persona with full identity DNA",
+      "7-day generation + carousel prompt chains",
+      "Offline strategy, captions, and weekly consistency flow",
+      "Prompt memory for repeatable visual coherence"
     ],
     limits: { personas: 1, generation_days: 7 },
     generation_mode: "offline"
@@ -31,12 +31,12 @@ const FALLBACK_PLANS: Plan[] = [
     id: "pro",
     name: "PRO",
     monthly_price_eur: 29,
-    tagline: "Turn content into a growth system with AI strategy.",
+    tagline: "Turn creator content into an AI-assisted growth machine.",
     outcomes: [
-      "Up to 3 personas",
-      "30-day calendar generation",
-      "AI hooks and CTA optimization",
-      "OpenRouter-powered premium planning"
+      "3 personas + 30-day planning",
+      "OpenRouter-powered strategy and hooks",
+      "fal.ai image generation with monthly included credits",
+      "Faster campaign execution and conversion focus"
     ],
     limits: { personas: 3, generation_days: 30 },
     generation_mode: "llm"
@@ -45,12 +45,12 @@ const FALLBACK_PLANS: Plan[] = [
     id: "max",
     name: "MAX",
     monthly_price_eur: 199,
-    tagline: "Operate a creator portfolio at agency scale.",
+    tagline: "Operate a multi-persona portfolio at agency level.",
     outcomes: [
-      "Up to 10 personas",
-      "Advanced campaign-grade planning",
-      "Monetization-focused narrative design",
-      "High-intensity AI orchestration"
+      "10 personas + high-output planning",
+      "Portfolio-level campaign operations",
+      "Higher included credits + priority media workflows",
+      "Scale architecture for top-tier AI influencer teams"
     ],
     limits: { personas: 10, generation_days: 30 },
     generation_mode: "llm"
@@ -79,17 +79,17 @@ export default async function HomePage() {
         <div className="absolute -right-14 -top-14 h-44 w-44 rounded-full bg-cyan-300/20 blur-2xl" />
         <div className="absolute -bottom-20 left-14 h-48 w-48 rounded-full bg-lime-300/15 blur-2xl" />
 
-        <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/80">VIDRA // Creator OS</p>
-        <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.05] sm:text-6xl">
-          Build AI creators that look consistent, grow faster, and convert.
+        <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/80">VIDRA BY LEXA AI · AI INFLUENCER OPERATING SYSTEM</p>
+        <h1 className="mt-4 max-w-4xl text-4xl font-black leading-[1.05] sm:text-6xl">
+          Create a profitable AI influencer system, not random prompts.
         </h1>
-        <p className="mt-4 max-w-2xl text-sm text-slate-200/90 sm:text-lg">
-          Vidra is your content operating system: create a persona, generate a full execution plan, and run a repeatable growth machine from mobile.
+        <p className="mt-4 max-w-3xl text-sm text-slate-200/90 sm:text-lg">
+          Build identity memory, generate coherent monthly content strategy, create media-ready prompts, and run campaign execution from one dashboard.
         </p>
 
         <div className="mt-7 flex flex-wrap gap-3">
           <Link href="/signup" className="rounded-xl bg-cyan-400 px-5 py-2.5 text-sm font-black text-slate-950 sm:text-base">
-            Start Free
+            Start FREE
           </Link>
           <Link href="/dashboard" className="rounded-xl border border-cyan-300/40 px-5 py-2.5 text-sm font-black text-cyan-100 sm:text-base">
             Open Dashboard
@@ -98,16 +98,37 @@ export default async function HomePage() {
 
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
           <article className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-3">
-            <p className="text-xs uppercase tracking-wider text-cyan-200">Consistency Engine</p>
-            <p className="mt-1 text-sm text-slate-100">Generate daily posting structures instead of guessing what to post.</p>
+            <p className="text-xs uppercase tracking-wider text-cyan-200">Planning Speed</p>
+            <p className="mt-1 text-sm text-slate-100">Build and ship monthly calendars in minutes, not hours.</p>
           </article>
           <article className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-3">
-            <p className="text-xs uppercase tracking-wider text-lime-200">Persona Quality</p>
-            <p className="mt-1 text-sm text-slate-100">Keep visual identity and narrative coherence across your content calendar.</p>
+            <p className="text-xs uppercase tracking-wider text-lime-200">Identity Coherence</p>
+            <p className="mt-1 text-sm text-slate-100">Persona DNA keeps wardrobe, look, and story continuity aligned.</p>
           </article>
           <article className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-3">
-            <p className="text-xs uppercase tracking-wider text-orange-200">Revenue Focus</p>
-            <p className="mt-1 text-sm text-slate-100">Upgrade to conversion-first hooks and campaign framing when you scale.</p>
+            <p className="text-xs uppercase tracking-wider text-orange-200">Monetization Focus</p>
+            <p className="mt-1 text-sm text-slate-100">Upgrade into conversion-oriented hooks, campaigns, and media scale.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="panel p-5 sm:p-8">
+        <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">How It Works</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-4">
+            <p className="text-xs font-bold text-cyan-100">Step 1</p>
+            <h3 className="mt-1 text-lg font-black">Design Persona Memory</h3>
+            <p className="mt-2 text-sm text-slate-200">Generate profile DNA, wardrobe logic, beauty styles, world events, and prompt blueprints.</p>
+          </article>
+          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-4">
+            <p className="text-xs font-bold text-cyan-100">Step 2</p>
+            <h3 className="mt-1 text-lg font-black">Run Monthly Strategy</h3>
+            <p className="mt-2 text-sm text-slate-200">Create day-by-day calendar output with post ideas, captions, and coherent carousel prompts.</p>
+          </article>
+          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-4">
+            <p className="text-xs font-bold text-cyan-100">Step 3</p>
+            <h3 className="mt-1 text-lg font-black">Generate and Scale Media</h3>
+            <p className="mt-2 text-sm text-slate-200">Use image generation workflows with credits and edit chains for consistent carousel narratives.</p>
           </article>
         </div>
       </section>
@@ -115,8 +136,8 @@ export default async function HomePage() {
       <section className="panel p-5 sm:p-8">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Pricing</p>
-            <h2 className="mt-2 text-2xl font-black sm:text-4xl">Choose your operating mode</h2>
+            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">FREE · PRO · MAX</p>
+            <h2 className="mt-2 text-2xl font-black sm:text-4xl">Choose your operating tier</h2>
           </div>
           <Link href="/signup" className="hidden rounded-xl border border-cyan-300/30 px-4 py-2 text-sm font-bold text-cyan-100 sm:inline-block">
             Create account
@@ -133,7 +154,7 @@ export default async function HomePage() {
               <p className="mt-2 text-sm text-slate-200/90">{plan.tagline}</p>
 
               <div className="mt-3 rounded-lg border border-cyan-300/20 bg-slate-900/70 p-2 text-xs text-slate-200">
-                Up to {plan.limits.personas} persona(s) · {plan.limits.generation_days} day generation · {plan.generation_mode.toUpperCase()} engine
+                {plan.limits.personas} persona(s) · {plan.limits.generation_days} day generation · {plan.generation_mode.toUpperCase()} engine
               </div>
 
               <ul className="mt-3 space-y-2 text-sm text-slate-100">
@@ -144,10 +165,7 @@ export default async function HomePage() {
                 ))}
               </ul>
 
-              <Link
-                href="/signup"
-                className="mt-4 inline-block rounded-lg bg-cyan-400 px-3 py-2 text-sm font-black text-slate-950"
-              >
+              <Link href="/signup" className="mt-4 inline-block rounded-lg bg-cyan-400 px-3 py-2 text-sm font-black text-slate-950">
                 Start {plan.name}
               </Link>
             </article>
@@ -156,26 +174,63 @@ export default async function HomePage() {
       </section>
 
       <section className="panel p-5 sm:p-8">
-        <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Why Teams Pick Vidra</p>
-        <h2 className="mt-2 text-2xl font-black sm:text-4xl">Not a prompt toy. A creator execution system.</h2>
+        <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Why Vidra Wins</p>
+        <h2 className="mt-2 text-2xl font-black sm:text-4xl">What schedulers and generators alone do not solve</h2>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/40 p-4">
-            <h3 className="font-bold">From chaos to plan</h3>
-            <p className="mt-2 text-sm text-slate-200/90">Generate structured content timelines with daily post angles, mood, scenes, and caption direction.</p>
-          </article>
-          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/40 p-4">
-            <h3 className="font-bold">Tiered scale path</h3>
-            <p className="mt-2 text-sm text-slate-200/90">Start free forever, unlock AI-assisted quality in PRO, then run multi-creator systems in MAX.</p>
-          </article>
-          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/40 p-4">
-            <h3 className="font-bold">Mobile-first ops</h3>
-            <p className="mt-2 text-sm text-slate-200/90">Create personas, generate calendars, and review outputs directly from your phone.</p>
-          </article>
-          <article className="rounded-xl border border-cyan-300/20 bg-slate-950/40 p-4">
-            <h3 className="font-bold">Own your stack</h3>
-            <p className="mt-2 text-sm text-slate-200/90">Self-host on your infrastructure with domain control and direct Stripe billing ownership.</p>
-          </article>
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead>
+              <tr className="text-cyan-100">
+                <th className="px-3 py-2">Capability</th>
+                <th className="px-3 py-2">Basic Schedulers</th>
+                <th className="px-3 py-2">Image Tools</th>
+                <th className="px-3 py-2">Vidra by Lexa AI</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-cyan-300/20">
+                <td className="px-3 py-2">Persistent persona memory</td>
+                <td className="px-3 py-2 text-slate-300">No</td>
+                <td className="px-3 py-2 text-slate-300">No</td>
+                <td className="px-3 py-2 text-lime-100">Yes</td>
+              </tr>
+              <tr className="border-t border-cyan-300/20">
+                <td className="px-3 py-2">Monthly strategy + daily execution</td>
+                <td className="px-3 py-2 text-slate-300">Partial</td>
+                <td className="px-3 py-2 text-slate-300">No</td>
+                <td className="px-3 py-2 text-lime-100">Yes</td>
+              </tr>
+              <tr className="border-t border-cyan-300/20">
+                <td className="px-3 py-2">Coherent carousel edit chain prompts</td>
+                <td className="px-3 py-2 text-slate-300">No</td>
+                <td className="px-3 py-2 text-slate-300">Partial</td>
+                <td className="px-3 py-2 text-lime-100">Yes</td>
+              </tr>
+              <tr className="border-t border-cyan-300/20">
+                <td className="px-3 py-2">Credits + BYOK hybrid monetization</td>
+                <td className="px-3 py-2 text-slate-300">No</td>
+                <td className="px-3 py-2 text-slate-300">No</td>
+                <td className="px-3 py-2 text-lime-100">Yes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel p-5 sm:p-8">
+        <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Trust Layer</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <p className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-3 text-sm text-slate-100">
+            Built and operated as <span className="font-bold text-cyan-100">Vidra by Lexa AI</span> with Stripe billing and self-host deployment compatibility.
+          </p>
+          <div className="rounded-xl border border-cyan-300/20 bg-slate-950/45 p-3 text-sm text-slate-100">
+            Legal baseline included: Terms, Privacy, Cookies policies and consent preference controls.
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <Link href="/legal/terms" className="text-cyan-100 underline">Terms</Link>
+              <Link href="/legal/privacy" className="text-cyan-100 underline">Privacy</Link>
+              <Link href="/legal/cookies" className="text-cyan-100 underline">Cookies</Link>
+            </div>
+          </div>
         </div>
       </section>
     </main>

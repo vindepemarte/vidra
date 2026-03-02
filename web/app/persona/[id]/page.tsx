@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 
 import { LogoutButton } from "@/components/logout-button";
 import { API_URL } from "@/lib/api";
+import { trackEvent } from "@/lib/events";
 
 type Persona = {
   id: string;
@@ -41,10 +42,20 @@ type CalendarMonthSummary = {
   days_count: number;
 };
 
+type MediaJobSummary = {
+  id: string;
+  status: string;
+  mode: string;
+  output_url?: string | null;
+  created_at: string;
+};
+
 type PersonaDetail = {
   persona: Persona;
   profile?: PersonaProfile | null;
   calendars: CalendarMonthSummary[];
+  media_generated_count: number;
+  recent_media_jobs: MediaJobSummary[];
 };
 
 type CalendarSlide = {
@@ -54,6 +65,7 @@ type CalendarSlide = {
 };
 
 type CalendarPost = {
+  id: string;
   post_number: number;
   time: string;
   scene_type: string;
@@ -84,6 +96,31 @@ type MyPlan = {
   generation_mode: string;
   openrouter_enabled?: boolean;
   openrouter_model?: string | null;
+  credits_balance?: number;
+  included_credits?: number;
+};
+
+type MediaJob = {
+  id: string;
+  user_id: string;
+  persona_id: string;
+  post_id?: string | null;
+  provider: string;
+  model: string;
+  mode: string;
+  status: string;
+  prompt: string;
+  reference_asset_id?: string | null;
+  output_url?: string | null;
+  error_message?: string | null;
+  cost_credits: number;
+  external_job_id?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type MediaList = {
+  jobs: MediaJob[];
 };
 
 function monthKey(year: number, month: number): string {
@@ -119,14 +156,55 @@ export default function PersonaPage() {
   const [myPlan, setMyPlan] = useState<MyPlan | null>(null);
   const [selectedMonthKey, setSelectedMonthKey] = useState("");
   const [loadedMonth, setLoadedMonth] = useState<CalendarMonth | null>(null);
+  const [mediaJobs, setMediaJobs] = useState<MediaJob[]>([]);
+
+  const [selectedPostId, setSelectedPostId] = useState("");
+  const [selectedSlidePrompt, setSelectedSlidePrompt] = useState("");
+  const [selectedSourceMediaId, setSelectedSourceMediaId] = useState("");
+  const [mediaMode, setMediaMode] = useState<"image" | "edit">("image");
 
   const [loading, setLoading] = useState(true);
   const [busyLoadMonth, setBusyLoadMonth] = useState(false);
   const [busyRegenerate, setBusyRegenerate] = useState<string | null>(null);
   const [busyDelete, setBusyDelete] = useState(false);
+  const [busyMedia, setBusyMedia] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const calendarArchive = useMemo(() => detail?.calendars ?? [], [detail?.calendars]);
+
+  const postOptions = useMemo(() => {
+    if (!loadedMonth) return [] as Array<{ id: string; label: string; prompt: string; slides: CalendarSlide[] }>;
+    const rows: Array<{ id: string; label: string; prompt: string; slides: CalendarSlide[] }> = [];
+    for (const day of loadedMonth.days) {
+      for (const post of day.posts) {
+        rows.push({
+          id: post.id,
+          label: `Day ${day.day} · Post ${post.post_number} · ${post.scene_type}`,
+          prompt: post.prompt,
+          slides: post.slides || []
+        });
+      }
+    }
+    return rows;
+  }, [loadedMonth]);
+
+  const selectedPost = useMemo(() => postOptions.find((post) => post.id === selectedPostId) || null, [postOptions, selectedPostId]);
+
+  const completedMediaJobs = useMemo(
+    () => mediaJobs.filter((job) => job.status === "completed" && job.output_url),
+    [mediaJobs]
+  );
+
+  async function loadMediaJobs(): Promise<void> {
+    if (!token || !personaId) return;
+    const res = await fetch(`${API_URL}/api/media/persona/${personaId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    const payload = (await res.json()) as MediaList;
+    setMediaJobs(payload.jobs || []);
+  }
 
   async function loadPersonaDetail(autoLoadLatest = true): Promise<void> {
     if (!token || !personaId) return;
@@ -152,6 +230,8 @@ export default function PersonaPage() {
 
       setDetail(detailPayload);
       setMyPlan(planPayload);
+
+      await loadMediaJobs();
 
       if (autoLoadLatest && detailPayload.calendars[0]) {
         const latest = detailPayload.calendars[0];
@@ -180,6 +260,12 @@ export default function PersonaPage() {
       const payload = (await res.json()) as CalendarMonth;
       setLoadedMonth(payload);
       setSelectedMonthKey(monthKey(year, month));
+
+      const firstPost = payload.days[0]?.posts[0];
+      if (firstPost) {
+        setSelectedPostId(firstPost.id);
+        setSelectedSlidePrompt(firstPost.slides?.[0]?.prompt || firstPost.prompt);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot load month");
     } finally {
@@ -193,6 +279,7 @@ export default function PersonaPage() {
     try {
       setBusyRegenerate(mode);
       setError("");
+      setSuccess("");
 
       const res = await fetch(`${API_URL}/api/personas/${personaId}/profile/generate`, {
         method: "POST",
@@ -204,6 +291,7 @@ export default function PersonaPage() {
       });
 
       if (!res.ok) throw new Error(await extractErrorMessage(res));
+      setSuccess("Persona intelligence regenerated.");
       await loadPersonaDetail(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot regenerate profile");
@@ -233,6 +321,85 @@ export default function PersonaPage() {
       setError(err instanceof Error ? err.message : "Cannot delete persona");
     } finally {
       setBusyDelete(false);
+    }
+  }
+
+  async function generateMedia(): Promise<void> {
+    if (!token || !personaId || busyMedia) return;
+    if (!selectedPostId) {
+      setError("Select a post first.");
+      return;
+    }
+    if (!selectedSlidePrompt.trim()) {
+      setError("Prompt is empty.");
+      return;
+    }
+
+    if (mediaMode === "edit" && !selectedSourceMediaId) {
+      setError("Select a source image for edit mode.");
+      return;
+    }
+
+    try {
+      setBusyMedia(true);
+      setError("");
+      setSuccess("");
+
+      const endpoint = mediaMode === "image" ? "/api/media/generate-image" : "/api/media/edit-image";
+      const body: Record<string, unknown> = {
+        persona_id: personaId,
+        post_id: selectedPostId,
+        prompt: selectedSlidePrompt
+      };
+      if (mediaMode === "edit") {
+        body.source_media_id = selectedSourceMediaId;
+      }
+
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const job = (await res.json()) as MediaJob;
+      await trackEvent("media_generated", { mode: mediaMode, provider: job.provider }, token);
+
+      setSuccess(`Media job completed (${job.mode.toUpperCase()}).`);
+      await loadMediaJobs();
+      await loadPersonaDetail(false);
+
+      if (job.output_url) {
+        setSelectedSourceMediaId(job.id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Media generation failed");
+    } finally {
+      setBusyMedia(false);
+    }
+  }
+
+  function onSelectPost(postId: string): void {
+    setSelectedPostId(postId);
+    const post = postOptions.find((item) => item.id === postId);
+    if (!post) return;
+    setSelectedSlidePrompt(post.slides[0]?.prompt || post.prompt || "");
+  }
+
+  function onSelectSlidePrompt(prompt: string): void {
+    setSelectedSlidePrompt(prompt);
+  }
+
+  async function copyPrompt(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSuccess("Prompt copied.");
+    } catch {
+      setError("Cannot copy prompt on this browser.");
     }
   }
 
@@ -270,7 +437,7 @@ export default function PersonaPage() {
               {detail.persona.name.slice(0, 1).toUpperCase()}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Persona Control Layer</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Vidra by Lexa AI · Persona Control Layer</p>
               <h1 className="mt-1 text-2xl font-black sm:text-4xl">{detail.persona.name}</h1>
               <p className="text-sm text-slate-300">@{detail.persona.handle} · {detail.persona.city} · {detail.persona.niche}</p>
             </div>
@@ -287,7 +454,7 @@ export default function PersonaPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <div className="mt-4 grid gap-2 sm:grid-cols-5">
           <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
             <p className="text-xs uppercase tracking-wide text-cyan-100/75">Tier</p>
             <p className="mt-1 text-xl font-black">{myPlan?.current_tier.toUpperCase() ?? "FREE"}</p>
@@ -299,6 +466,14 @@ export default function PersonaPage() {
           <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
             <p className="text-xs uppercase tracking-wide text-cyan-100/75">Saved Calendars</p>
             <p className="mt-1 text-xl font-black">{calendarArchive.length}</p>
+          </article>
+          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
+            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Media Jobs</p>
+            <p className="mt-1 text-xl font-black">{detail.media_generated_count}</p>
+          </article>
+          <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
+            <p className="text-xs uppercase tracking-wide text-cyan-100/75">Credits</p>
+            <p className="mt-1 text-xl font-black">{myPlan?.credits_balance ?? 0}</p>
           </article>
         </div>
 
@@ -358,6 +533,13 @@ export default function PersonaPage() {
           <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-cyan-300/20 bg-slate-950/60 p-3 text-xs text-slate-100">
             {profile?.prompt_blueprint || "No prompt blueprint yet."}
           </pre>
+          <button
+            type="button"
+            onClick={() => void copyPrompt(profile?.prompt_blueprint || "")}
+            className="mt-2 rounded-md border border-cyan-300/40 px-2 py-1 text-xs font-bold text-cyan-100"
+          >
+            Copy Master Prompt
+          </button>
         </article>
       </section>
 
@@ -474,6 +656,135 @@ export default function PersonaPage() {
         </section>
       ) : null}
 
+      <section className="panel p-4">
+        <h2 className="text-lg font-black">Media Studio</h2>
+        <p className="mt-1 text-xs text-slate-300">Generate directly from saved calendar posts. Use edit mode for coherent carousel progression.</p>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <article className="rounded-lg border border-cyan-300/25 bg-slate-950/50 p-3">
+            <h3 className="text-sm font-black uppercase tracking-wide text-cyan-100">Generate</h3>
+
+            <div className="mt-2 space-y-2">
+              <select
+                className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                value={selectedPostId}
+                onChange={(e) => onSelectPost(e.target.value)}
+              >
+                <option value="">Select post</option>
+                {postOptions.map((post) => (
+                  <option key={post.id} value={post.id}>{post.label}</option>
+                ))}
+              </select>
+
+              {selectedPost ? (
+                <div className="flex flex-wrap gap-2">
+                  {selectedPost.slides.length > 0 ? selectedPost.slides.map((slide) => (
+                    <button
+                      key={`${selectedPost.id}-${slide.slide_number}`}
+                      type="button"
+                      onClick={() => onSelectSlidePrompt(slide.prompt)}
+                      className="rounded-md border border-cyan-300/35 px-2 py-1 text-xs font-bold text-cyan-100"
+                    >
+                      Slide {slide.slide_number}
+                    </button>
+                  )) : (
+                    <button
+                      type="button"
+                      onClick={() => onSelectSlidePrompt(selectedPost.prompt)}
+                      className="rounded-md border border-cyan-300/35 px-2 py-1 text-xs font-bold text-cyan-100"
+                    >
+                      Use Post Prompt
+                    </button>
+                  )}
+                </div>
+              ) : null}
+
+              <textarea
+                className="min-h-36 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-xs"
+                value={selectedSlidePrompt}
+                onChange={(e) => setSelectedSlidePrompt(e.target.value)}
+                placeholder="Prompt for image generation"
+              />
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMediaMode("image")}
+                  className={`rounded-lg border px-3 py-2 text-xs font-bold ${mediaMode === "image" ? "border-lime-300/60 bg-lime-500/10 text-lime-100" : "border-cyan-300/30 text-cyan-100"}`}
+                >
+                  New Image
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaMode("edit")}
+                  className={`rounded-lg border px-3 py-2 text-xs font-bold ${mediaMode === "edit" ? "border-lime-300/60 bg-lime-500/10 text-lime-100" : "border-cyan-300/30 text-cyan-100"}`}
+                >
+                  Edit Existing Image
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void copyPrompt(selectedSlidePrompt)}
+                  className="rounded-lg border border-cyan-300/30 px-3 py-2 text-xs font-bold text-cyan-100"
+                >
+                  Copy Prompt
+                </button>
+              </div>
+
+              {mediaMode === "edit" ? (
+                <select
+                  className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                  value={selectedSourceMediaId}
+                  onChange={(e) => setSelectedSourceMediaId(e.target.value)}
+                >
+                  <option value="">Select source media</option>
+                  {completedMediaJobs.map((job) => (
+                    <option key={job.id} value={job.id}>
+                      {new Date(job.created_at).toLocaleString()} · {job.mode.toUpperCase()} · {job.model}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={generateMedia}
+                disabled={busyMedia}
+                className="w-full rounded-lg bg-orange-400 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+              >
+                {busyMedia ? "Processing..." : mediaMode === "image" ? "Generate Image" : "Generate Edit"}
+              </button>
+            </div>
+          </article>
+
+          <article className="rounded-lg border border-cyan-300/25 bg-slate-950/50 p-3">
+            <h3 className="text-sm font-black uppercase tracking-wide text-cyan-100">Media Jobs</h3>
+            <div className="mt-2 max-h-96 space-y-2 overflow-auto pr-1">
+              {mediaJobs.length === 0 ? (
+                <p className="text-xs text-slate-300">No media generated yet.</p>
+              ) : (
+                mediaJobs.map((job) => (
+                  <div key={job.id} className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-bold">{job.mode.toUpperCase()} · {job.status.toUpperCase()}</p>
+                      <p className="text-slate-300">-{job.cost_credits} credits</p>
+                    </div>
+                    <p className="mt-1 text-slate-300">{new Date(job.created_at).toLocaleString()}</p>
+                    <p className="mt-1 line-clamp-3 text-slate-100">{job.prompt}</p>
+                    {job.output_url ? (
+                      <a href={job.output_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-cyan-100 underline">
+                        Open Output
+                      </a>
+                    ) : null}
+                    {job.error_message ? <p className="mt-1 text-red-200">{job.error_message}</p> : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </article>
+        </div>
+      </section>
+
+      {success ? <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 p-3 text-sm text-lime-100">{success}</p> : null}
       {error ? <p className="rounded-lg border border-red-300/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
     </main>
   );

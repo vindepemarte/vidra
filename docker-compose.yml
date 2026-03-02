@@ -21,7 +21,12 @@ services:
       dockerfile: Dockerfile.api
     environment:
       APP_ENV: production
-      FRONTEND_URL: ${FRONTEND_URL:-https://vidra.hellolexa.space}
+      FRONTEND_URL: ${FRONTEND_URL:-https://vidra.life}
+      AUTO_CREATE_TABLES: ${AUTO_CREATE_TABLES:-true}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
+      APP_POLICY_VERSION: ${APP_POLICY_VERSION:-1.0}
+      POSTHOG_HOST: ${POSTHOG_HOST:-}
+      POSTHOG_PROJECT_KEY: ${POSTHOG_PROJECT_KEY:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER:-vidra}
@@ -32,11 +37,19 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
       STRIPE_PRICE_MAX: ${STRIPE_PRICE_MAX:-}
+      STRIPE_PRICE_TOPUP_STARTER: ${STRIPE_PRICE_TOPUP_STARTER:-}
+      STRIPE_PRICE_TOPUP_GROWTH: ${STRIPE_PRICE_TOPUP_GROWTH:-}
+      STRIPE_PRICE_TOPUP_SCALE: ${STRIPE_PRICE_TOPUP_SCALE:-}
       STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-}
       STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-}
       STRIPE_PORTAL_RETURN_URL: ${STRIPE_PORTAL_RETURN_URL:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4-20250514}
+      FAL_API_KEY: ${FAL_API_KEY:-}
+      FAL_IMAGE_MODEL: ${FAL_IMAGE_MODEL:-fal-ai/flux/schnell}
+      FAL_EDIT_MODEL: ${FAL_EDIT_MODEL:-fal-ai/flux-lora/image-edit}
+      FAL_IMAGE_COST_CREDITS: ${FAL_IMAGE_COST_CREDITS:-20}
+      FAL_EDIT_COST_CREDITS: ${FAL_EDIT_COST_CREDITS:-12}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
     depends_on:
       postgres:
@@ -53,11 +66,15 @@ services:
       context: ./web
       dockerfile: Dockerfile
     environment:
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-https://vidra.hellolexa.space}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-https://vidra.life}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       AUTH_TRUST_HOST: "true"
       API_URL: http://api:8000
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.vidra.hellolexa.space}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.vidra.life}
+      NEXT_PUBLIC_APP_POLICY_VERSION: ${NEXT_PUBLIC_APP_POLICY_VERSION:-1.0}
+      NEXT_PUBLIC_LEGAL_OWNER: ${NEXT_PUBLIC_LEGAL_OWNER:-}
+      NEXT_PUBLIC_LEGAL_CONTACT_EMAIL: ${NEXT_PUBLIC_LEGAL_CONTACT_EMAIL:-}
+      NEXT_PUBLIC_LEGAL_COUNTRY: ${NEXT_PUBLIC_LEGAL_COUNTRY:-Italy}
     depends_on:
       api:
         condition: service_healthy

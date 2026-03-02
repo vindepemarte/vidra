@@ -57,6 +57,7 @@ def _serialize_month(month: CalendarMonth) -> MonthOut:
 
             posts_out.append(
                 PostOut(
+                    id=post.id,
                     post_number=post.post_number,
                     time=post.time,
                     scene_type=post.scene_type,

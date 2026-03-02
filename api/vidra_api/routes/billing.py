@@ -12,6 +12,7 @@ from vidra_api.deps import get_current_user
 from vidra_api.models import Subscription, User
 from vidra_api.plans import normalize_tier
 from vidra_api.schemas import CheckoutRequest, CheckoutSessionOut
+from vidra_api.services.wallet import apply_wallet_delta
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -94,6 +95,7 @@ async def _find_user(db: AsyncSession, user_id_ref: str | None, email: str | Non
 @router.post("/checkout", response_model=CheckoutSessionOut)
 async def create_checkout_session(
     payload: CheckoutRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user: User = Depends(get_current_user),
 ) -> CheckoutSessionOut:
     _ensure_stripe_configured()
@@ -116,25 +118,30 @@ async def create_checkout_session(
     success_url = settings.stripe_success_url or f"{settings.frontend_url}/dashboard?billing=success"
     cancel_url = settings.stripe_cancel_url or f"{settings.frontend_url}/dashboard?billing=cancel"
 
-    try:
-        checkout = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[{"price": price_id, "quantity": 1}],
-            customer_email=user.email,
-            success_url=success_url,
-            cancel_url=cancel_url,
-            client_reference_id=str(user.id),
-            metadata={
+    create_args = {
+        "mode": "subscription",
+        "line_items": [{"price": price_id, "quantity": 1}],
+        "customer_email": user.email,
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+        "client_reference_id": str(user.id),
+        "metadata": {
+            "user_id": str(user.id),
+            "target_tier": target_tier,
+        },
+        "subscription_data": {
+            "metadata": {
                 "user_id": str(user.id),
                 "target_tier": target_tier,
-            },
-            subscription_data={
-                "metadata": {
-                    "user_id": str(user.id),
-                    "target_tier": target_tier,
-                }
-            },
-        )
+            }
+        },
+    }
+
+    try:
+        if idempotency_key:
+            checkout = stripe.checkout.Session.create(**create_args, idempotency_key=idempotency_key)
+        else:
+            checkout = stripe.checkout.Session.create(**create_args)
     except stripe.error.StripeError as exc:
         raise HTTPException(status_code=502, detail=f"Stripe checkout error: {exc.user_message or str(exc)}") from exc
 
@@ -200,6 +207,33 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
     email = data_obj.get("customer_details", {}).get("email") or data_obj.get("customer_email")
     metadata = data_obj.get("metadata") or {}
     user_id_ref = metadata.get("user_id")
+
+    # Handle one-time credits top-up checkouts.
+    if event_type == "checkout.session.completed" and metadata.get("mode") == "topup":
+        credits_raw = metadata.get("credits") or "0"
+        try:
+            credits = int(credits_raw)
+        except ValueError:
+            credits = 0
+
+        if credits > 0:
+            async with SessionLocal() as db:  # type: AsyncSession
+                user = await _find_user(db=db, user_id_ref=user_id_ref, email=email, customer_id=customer_id)
+                if user is None:
+                    return {"status": "no-user", "customer": customer_id}
+
+                await apply_wallet_delta(
+                    db,
+                    user_id=user.id,
+                    tier=user.tier,
+                    delta=credits,
+                    reason=f"Top-up credits ({metadata.get('pack_id', 'custom')})",
+                    source_type="stripe_topup",
+                    source_id=str(data_obj.get("id") or metadata.get("session_id") or ""),
+                )
+                await db.commit()
+
+        return {"status": "ok", "type": event_type, "credits_added": credits}
 
     price_ids: list[str] = []
     sub_status = data_obj.get("status") or "active"

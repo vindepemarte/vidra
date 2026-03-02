@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,12 +7,16 @@ from vidra_api.database import get_db
 from vidra_api.deps import get_current_user
 from vidra_api.models import User
 from vidra_api.schemas import AuthResponse, LoginRequest, SignupRequest, UserOut
+from vidra_api.utils.limiter import enforce_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/signup", response_model=UserOut)
-async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> UserOut:
+async def signup(payload: SignupRequest, request: Request, db: AsyncSession = Depends(get_db)) -> UserOut:
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(key=f"auth:signup:{client_ip}", limit=15, window_seconds=300)
+
     existing = await db.execute(select(User).where(User.email == payload.email.lower()))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already used")
@@ -31,7 +35,10 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)) -> 
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)) -> AuthResponse:
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(key=f"auth:login:{client_ip}", limit=30, window_seconds=300)
+
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
     if not user or not verify_password(payload.password, user.password_hash):

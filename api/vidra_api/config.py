@@ -7,7 +7,12 @@ class Settings(BaseSettings):
 
     app_name: str = "Vidra API"
     app_env: str = "development"
-    frontend_url: str = "http://localhost:3000"
+    frontend_url: str = "https://vidra.life"
+    auto_create_tables: bool = True
+    app_policy_version: str = "1.0"
+    app_encryption_key: str | None = None
+    posthog_host: str | None = None
+    posthog_project_key: str | None = None
 
     database_url: str | None = None
     db_host: str = "postgres"
@@ -30,6 +35,15 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str | None = None
     openrouter_model: str = "anthropic/claude-sonnet-4-20250514"
+    fal_api_key: str | None = None
+    fal_image_model: str = "fal-ai/flux/schnell"
+    fal_edit_model: str = "fal-ai/flux-lora/image-edit"
+    fal_image_cost_credits: int = 20
+    fal_edit_cost_credits: int = 12
+
+    stripe_price_topup_starter: str | None = None
+    stripe_price_topup_growth: str | None = None
+    stripe_price_topup_scale: str | None = None
 
 
 settings = Settings()

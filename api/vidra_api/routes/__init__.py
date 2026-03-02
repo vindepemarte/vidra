@@ -1,3 +1,17 @@
-from . import auth, billing, calendar, dashboard, export, personas, plans
+from . import account, auth, billing, calendar, consent, credits, dashboard, events, export, media, onboarding, personas, plans
 
-__all__ = ["auth", "billing", "calendar", "dashboard", "export", "personas", "plans"]
+__all__ = [
+    "account",
+    "auth",
+    "billing",
+    "calendar",
+    "consent",
+    "credits",
+    "dashboard",
+    "events",
+    "export",
+    "media",
+    "onboarding",
+    "personas",
+    "plans",
+]

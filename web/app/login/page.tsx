@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -31,8 +32,9 @@ export default function LoginPage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-4">
       <form onSubmit={onSubmit} className="panel w-full p-5">
-        <h1 className="text-2xl font-black">Login</h1>
-        <p className="mt-1 text-sm text-slate-300">Return to command center.</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Vidra by Lexa AI</p>
+        <h1 className="mt-1 text-2xl font-black">Login</h1>
+        <p className="mt-1 text-sm text-slate-300">Return to your AI influencer command center.</p>
         <div className="mt-4 space-y-3">
           <input
             required
@@ -55,6 +57,9 @@ export default function LoginPage() {
         <button className="mt-4 w-full rounded-xl bg-cyan-400 py-2 font-bold text-slate-950" type="submit">
           Enter
         </button>
+        <p className="mt-3 text-xs text-slate-300">
+          New here? <Link href="/signup" className="text-cyan-100 underline">Create account</Link>
+        </p>
       </form>
     </main>
   );

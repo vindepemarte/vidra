@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 from vidra_api.config import settings
 from vidra_api.database import get_db
 from vidra_api.deps import get_current_user
-from vidra_api.models import CalendarMonth, Persona, PersonaProfile, User
+from vidra_api.models import CalendarMonth, MediaGeneration, Persona, PersonaProfile, User
 from vidra_api.persona_intel import PersonaProfileBundle, build_llm_profile, build_offline_profile
 from vidra_api.plans import normalize_tier, personas_limit_for_tier, upgrade_target_for_tier
 from vidra_api.schemas import (
@@ -19,6 +19,7 @@ from vidra_api.schemas import (
     PersonaOut,
     PersonaProfileGenerateRequest,
     PersonaProfileOut,
+    MediaJobSummaryOut,
 )
 
 router = APIRouter(prefix="/personas", tags=["personas"])
@@ -158,11 +159,41 @@ async def get_persona_detail(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
+    media_count = int(
+        (
+            await db.scalar(
+                select(func.count(MediaGeneration.id)).where(
+                    MediaGeneration.user_id == user.id,
+                    MediaGeneration.persona_id == persona.id,
+                )
+            )
+        )
+        or 0
+    )
+
+    jobs_q = await db.execute(
+        select(MediaGeneration)
+        .where(MediaGeneration.user_id == user.id, MediaGeneration.persona_id == persona.id)
+        .order_by(MediaGeneration.created_at.desc())
+        .limit(10)
+    )
+    recent_jobs = list(jobs_q.scalars().all())
     sorted_months = sorted(persona.months, key=lambda m: (m.year, m.month), reverse=True)
     return PersonaDetailOut(
         persona=persona,
         profile=_serialize_profile(persona.profile),
         calendars=[_serialize_calendar_summary(month) for month in sorted_months],
+        media_generated_count=media_count,
+        recent_media_jobs=[
+            MediaJobSummaryOut(
+                id=job.id,
+                status=job.status,
+                mode=job.mode,
+                output_url=job.output_url,
+                created_at=job.created_at,
+            )
+            for job in recent_jobs
+        ],
     )
 
 

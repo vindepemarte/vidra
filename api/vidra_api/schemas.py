@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -58,20 +58,21 @@ class GenerateCalendarRequest(BaseModel):
     force_regenerate: bool = False
 
 
+class SlideOut(BaseModel):
+    slide_number: int
+    prompt: str
+    edit_instruction: str | None = None
+
+
 class PostOut(BaseModel):
+    id: UUID
     post_number: int
     time: str
     scene_type: str
     caption: str
     prompt: str
     hashtags: str
-    slides: list["SlideOut"] = Field(default_factory=list)
-
-
-class SlideOut(BaseModel):
-    slide_number: int
-    prompt: str
-    edit_instruction: str | None = None
+    slides: list[SlideOut] = Field(default_factory=list)
 
 
 class DayOut(BaseModel):
@@ -98,6 +99,11 @@ class CalendarMonthSummaryOut(BaseModel):
     days_count: int
 
 
+class CalendarListOut(BaseModel):
+    persona_id: UUID
+    months: list[CalendarMonthSummaryOut]
+
+
 class PlanOut(BaseModel):
     id: str
     name: str
@@ -112,6 +118,36 @@ class PlanCatalogOut(BaseModel):
     plans: list[PlanOut]
 
 
+class CheckoutRequest(BaseModel):
+    tier: str = Field(pattern="^(pro|max)$")
+
+
+class CheckoutSessionOut(BaseModel):
+    url: str
+
+
+class CreditWalletOut(BaseModel):
+    balance_credits: int
+    included_monthly_credits: int
+
+
+class CreditLedgerEntryOut(BaseModel):
+    id: UUID
+    delta: int
+    reason: str
+    source_type: str
+    source_id: str
+    created_at: datetime
+
+
+class CreditLedgerOut(BaseModel):
+    entries: list[CreditLedgerEntryOut]
+
+
+class TopupCheckoutRequest(BaseModel):
+    pack_id: str = Field(pattern="^(starter|growth|scale)$")
+
+
 class MyPlanOut(BaseModel):
     current_tier: str
     next_tier: str | None
@@ -120,6 +156,8 @@ class MyPlanOut(BaseModel):
     generation_mode: str
     openrouter_enabled: bool = False
     openrouter_model: str | None = None
+    credits_balance: int = 0
+    included_credits: int = 0
 
 
 class DashboardOverviewOut(BaseModel):
@@ -132,14 +170,86 @@ class DashboardOverviewOut(BaseModel):
     openrouter_enabled: bool = False
     openrouter_model: str | None = None
     value_snapshot: list[str]
+    onboarding_completed: bool = False
+    credits_balance: int = 0
+    included_credits: int = 0
+    persona_health_score: int = 0
+    weekly_quests: list[str] = Field(default_factory=list)
 
 
-class CheckoutRequest(BaseModel):
-    tier: str = Field(pattern="^(pro|max)$")
+class OnboardingStateOut(BaseModel):
+    current_step: int
+    goal: str | None
+    completed: bool
 
 
-class CheckoutSessionOut(BaseModel):
-    url: str
+class OnboardingStepRequest(BaseModel):
+    step: int = Field(ge=0, le=10)
+    goal: str | None = None
+
+
+class OnboardingCompleteOut(BaseModel):
+    completed: bool
+
+
+class ApiKeySetRequest(BaseModel):
+    api_key: str = Field(min_length=4, max_length=4096)
+
+
+class ApiKeyMaskOut(BaseModel):
+    provider: str
+    configured: bool
+    masked_value: str | None = None
+
+
+class ApiKeyListOut(BaseModel):
+    keys: list[ApiKeyMaskOut]
+
+
+class MediaJobOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    persona_id: UUID
+    post_id: UUID | None
+    provider: str
+    model: str
+    mode: str
+    status: str
+    prompt: str
+    reference_asset_id: UUID | None
+    output_url: str | None
+    error_message: str | None
+    cost_credits: int
+    external_job_id: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MediaJobSummaryOut(BaseModel):
+    id: UUID
+    status: str
+    mode: str
+    output_url: str | None
+    created_at: datetime
+
+
+class MediaJobListOut(BaseModel):
+    jobs: list[MediaJobOut]
+
+
+class MediaGenerateImageRequest(BaseModel):
+    persona_id: UUID
+    post_id: UUID | None = None
+    prompt: str = Field(min_length=3)
+    model: str | None = None
+
+
+class MediaEditImageRequest(BaseModel):
+    persona_id: UUID
+    post_id: UUID | None = None
+    prompt: str = Field(min_length=3)
+    source_media_id: UUID
+    model: str | None = None
 
 
 class PersonaProfileOut(BaseModel):
@@ -160,12 +270,29 @@ class PersonaDetailOut(BaseModel):
     persona: PersonaOut
     profile: PersonaProfileOut | None = None
     calendars: list[CalendarMonthSummaryOut]
+    media_generated_count: int = 0
+    recent_media_jobs: list[MediaJobSummaryOut] = Field(default_factory=list)
 
 
 class PersonaProfileGenerateRequest(BaseModel):
     mode: str = Field(pattern="^(offline|llm|auto)$", default="auto")
 
 
-class CalendarListOut(BaseModel):
-    persona_id: UUID
-    months: list[CalendarMonthSummaryOut]
+class ConsentCookieRequest(BaseModel):
+    session_id: str = Field(min_length=8, max_length=128)
+    analytics: bool = False
+    marketing: bool = False
+
+
+class ConsentCookieOut(BaseModel):
+    accepted: bool
+    policy_version: str
+
+
+class EventTrackRequest(BaseModel):
+    event_name: str = Field(min_length=2, max_length=128)
+    payload: dict = Field(default_factory=dict)
+
+
+class EventTrackOut(BaseModel):
+    accepted: bool
