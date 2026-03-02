@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     stripe_price_pro: str | None = None
     stripe_price_max: str | None = None
 
+    openrouter_api_key: str | None = None
+    openrouter_model: str = "anthropic/claude-sonnet-4-20250514"
+
 
 settings = Settings()
 

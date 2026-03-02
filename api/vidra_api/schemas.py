@@ -80,3 +80,37 @@ class MonthOut(BaseModel):
     year: int
     mode: str
     days: list[DayOut]
+
+
+class PlanOut(BaseModel):
+    id: str
+    name: str
+    monthly_price_eur: int
+    tagline: str
+    outcomes: list[str]
+    limits: dict[str, int]
+    generation_mode: str
+
+
+class PlanCatalogOut(BaseModel):
+    plans: list[PlanOut]
+
+
+class MyPlanOut(BaseModel):
+    current_tier: str
+    next_tier: str | None
+    personas_limit: int
+    generation_days_limit: int
+    generation_mode: str
+    openrouter_model: str | None = None
+
+
+class DashboardOverviewOut(BaseModel):
+    current_tier: str
+    personas_count: int
+    personas_limit: int
+    generated_months_count: int
+    generation_days_limit: int
+    generation_mode: str
+    openrouter_model: str | None = None
+    value_snapshot: list[str]

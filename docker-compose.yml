@@ -31,6 +31,7 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4-20250514}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
     depends_on:
       postgres:
@@ -52,6 +53,8 @@ services:
       AUTH_TRUST_HOST: "true"
       API_URL: http://api:8000
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.vidra.hellolexa.space}
+      NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL: ${NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL:-}
+      NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL: ${NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL:-}
     depends_on:
       api:
         condition: service_healthy

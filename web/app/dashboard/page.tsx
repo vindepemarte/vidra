@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
+import { LogoutButton } from "@/components/logout-button";
 import { API_URL } from "@/lib/api";
 
 type Persona = {
@@ -15,6 +16,36 @@ type Persona = {
   niche: string;
   vibe: string;
   template: string;
+};
+
+type Plan = {
+  id: string;
+  name: string;
+  monthly_price_eur: number;
+  tagline: string;
+  outcomes: string[];
+  limits: { personas: number; generation_days: number };
+  generation_mode: string;
+};
+
+type DashboardOverview = {
+  current_tier: string;
+  personas_count: number;
+  personas_limit: number;
+  generated_months_count: number;
+  generation_days_limit: number;
+  generation_mode: string;
+  openrouter_model?: string | null;
+  value_snapshot: string[];
+};
+
+type MyPlan = {
+  current_tier: string;
+  next_tier?: string | null;
+  personas_limit: number;
+  generation_days_limit: number;
+  generation_mode: string;
+  openrouter_model?: string | null;
 };
 
 type CalendarSummary = {
@@ -30,17 +61,44 @@ type CalendarSummary = {
 };
 
 const now = new Date();
+const CHECKOUT_PRO = process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL ?? "";
+const CHECKOUT_MAX = process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL ?? "";
+
+function prettyTier(tier: string): string {
+  return tier.toUpperCase();
+}
+
+async function extractErrorMessage(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const payload = JSON.parse(text) as { detail?: string };
+    if (payload.detail) {
+      return payload.detail;
+    }
+  } catch {
+    // no-op
+  }
+  return text || `Request failed (${res.status})`;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const token = session?.user?.accessToken;
 
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [myPlan, setMyPlan] = useState<MyPlan | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+
   const [selectedPersonaId, setSelectedPersonaId] = useState("");
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
   const [calendar, setCalendar] = useState<CalendarSummary | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [busyCreate, setBusyCreate] = useState(false);
+  const [busyGenerate, setBusyGenerate] = useState(false);
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
@@ -59,114 +117,329 @@ export default function DashboardPage() {
       return;
     }
 
-    if (!token) {
-      return;
+    async function boot() {
+      if (!token) {
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError("");
+
+        const [overviewRes, myPlanRes, plansRes, personasRes] = await Promise.all([
+          fetch(`${API_URL}/api/dashboard/overview`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/plans/me`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/plans`),
+          fetch(`${API_URL}/api/personas`, { headers: { Authorization: `Bearer ${token}` } })
+        ]);
+
+        if (!overviewRes.ok) {
+          throw new Error(await extractErrorMessage(overviewRes));
+        }
+        if (!myPlanRes.ok) {
+          throw new Error(await extractErrorMessage(myPlanRes));
+        }
+        if (!plansRes.ok) {
+          throw new Error(await extractErrorMessage(plansRes));
+        }
+        if (!personasRes.ok) {
+          throw new Error(await extractErrorMessage(personasRes));
+        }
+
+        const overviewData = (await overviewRes.json()) as DashboardOverview;
+        const myPlanData = (await myPlanRes.json()) as MyPlan;
+        const plansData = (await plansRes.json()) as { plans: Plan[] };
+        const personasData = (await personasRes.json()) as Persona[];
+
+        setOverview(overviewData);
+        setMyPlan(myPlanData);
+        setPlans(plansData.plans);
+        setPersonas(personasData);
+
+        if (personasData[0]) {
+          setSelectedPersonaId((current) => current || personasData[0].id);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Cannot load dashboard");
+      } finally {
+        setLoading(false);
+      }
     }
 
-    fetch(`${API_URL}/api/personas`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Load personas failed"))))
-      .then((rows: Persona[]) => {
-        setPersonas(rows);
-        if (rows[0]) {
-          setSelectedPersonaId(rows[0].id);
-        }
-      })
-      .catch((e) => setError(e.message));
+    void boot();
   }, [router, status, token]);
 
-  const tier = useMemo(() => (session?.user?.tier ?? "free").toUpperCase(), [session?.user?.tier]);
+  const currentTier = useMemo(() => overview?.current_tier ?? "free", [overview?.current_tier]);
+
+  const currentPlanCard = useMemo(
+    () => plans.find((plan) => plan.id === currentTier) ?? null,
+    [currentTier, plans]
+  );
+
+  const upgradeUrl = useMemo(() => {
+    if (currentTier === "free") {
+      return CHECKOUT_PRO;
+    }
+    if (currentTier === "pro") {
+      return CHECKOUT_MAX;
+    }
+    return "";
+  }, [currentTier]);
+
+  const canCreatePersona = useMemo(() => {
+    if (!overview) {
+      return true;
+    }
+    return overview.personas_count < overview.personas_limit;
+  }, [overview]);
 
   async function createPersona() {
-    if (!token) {
-      return;
-    }
-    setError("");
-
-    const res = await fetch(`${API_URL}/api/personas`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify(form)
-    });
-
-    if (!res.ok) {
-      setError("Persona creation failed");
+    if (!token || busyCreate) {
       return;
     }
 
-    const created = (await res.json()) as Persona;
-    const next = [created, ...personas];
-    setPersonas(next);
-    setSelectedPersonaId(created.id);
+    try {
+      setBusyCreate(true);
+      setError("");
+
+      const res = await fetch(`${API_URL}/api/personas`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(form)
+      });
+
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res));
+      }
+
+      const created = (await res.json()) as Persona;
+      const next = [created, ...personas];
+      setPersonas(next);
+      setSelectedPersonaId(created.id);
+
+      if (overview) {
+        setOverview({ ...overview, personas_count: overview.personas_count + 1 });
+      }
+
+      setForm({ ...form, name: "", handle: "" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Persona creation failed");
+    } finally {
+      setBusyCreate(false);
+    }
   }
 
   async function generateMonth() {
-    if (!token || !selectedPersonaId) {
+    if (!token || !selectedPersonaId || busyGenerate) {
       return;
     }
 
-    const res = await fetch(`${API_URL}/api/calendar/${selectedPersonaId}/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({ month, year })
-    });
+    try {
+      setBusyGenerate(true);
+      setError("");
 
-    if (!res.ok) {
-      setError("Calendar generation failed");
-      return;
+      const res = await fetch(`${API_URL}/api/calendar/${selectedPersonaId}/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ month, year })
+      });
+
+      if (!res.ok) {
+        throw new Error(await extractErrorMessage(res));
+      }
+
+      const data = (await res.json()) as CalendarSummary;
+      setCalendar(data);
+
+      if (overview) {
+        setOverview({ ...overview, generated_months_count: overview.generated_months_count + 1 });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Calendar generation failed");
+    } finally {
+      setBusyGenerate(false);
     }
-
-    const data = (await res.json()) as CalendarSummary;
-    setCalendar(data);
   }
 
-  if (status === "loading") {
-    return <main className="mx-auto min-h-screen w-full max-w-5xl px-4 py-5">Loading...</main>;
+  if (status === "loading" || loading) {
+    return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading control deck...</main>;
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-6">
-      <section className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.18em] text-cyan-200/80">Control Deck</p>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <h1 className="text-2xl font-black">Dashboard</h1>
-          <div className="rounded-lg border border-lime-300/50 bg-lime-400/15 px-3 py-1 text-xs font-bold text-lime-100">{tier}</div>
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-7">
+      <section className="panel p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Creator Control Deck</p>
+            <h1 className="mt-1 text-2xl font-black sm:text-4xl">Production Dashboard</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="rounded-lg border border-lime-300/50 bg-lime-400/15 px-3 py-1 text-xs font-black text-lime-100">
+              {prettyTier(currentTier)}
+            </div>
+            <LogoutButton />
+          </div>
         </div>
+
+        {overview ? (
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
+              <p className="text-xs uppercase tracking-wide text-cyan-100/75">Personas</p>
+              <p className="mt-1 text-xl font-black">
+                {overview.personas_count}/{overview.personas_limit}
+              </p>
+            </article>
+            <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
+              <p className="text-xs uppercase tracking-wide text-cyan-100/75">Calendars Generated</p>
+              <p className="mt-1 text-xl font-black">{overview.generated_months_count}</p>
+            </article>
+            <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
+              <p className="text-xs uppercase tracking-wide text-cyan-100/75">Generation Engine</p>
+              <p className="mt-1 text-xl font-black">{overview.generation_mode.toUpperCase()}</p>
+            </article>
+          </div>
+        ) : null}
+
+        {overview?.openrouter_model ? (
+          <p className="mt-3 rounded-md border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+            Active OpenRouter model for paid generation: <span className="font-bold">{overview.openrouter_model}</span>
+          </p>
+        ) : null}
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2">
         <article className="panel p-4">
-          <h2 className="text-lg font-bold">Create Persona</h2>
+          <h2 className="text-lg font-black">What You Get Right Now</h2>
+          <ul className="mt-3 space-y-2 text-sm text-slate-100">
+            {(overview?.value_snapshot ?? []).map((line) => (
+              <li key={line} className="rounded-lg border border-cyan-300/20 bg-slate-950/55 px-3 py-2">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </article>
+
+        <article className="panel p-4">
+          <h2 className="text-lg font-black">Create Persona</h2>
+          <p className="mt-1 text-xs text-slate-300">Your creator identity is the base layer of every calendar.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <input
+              className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+              placeholder="Name"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+            <input
+              className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+              placeholder="Handle"
+              value={form.handle}
+              onChange={(e) => setForm({ ...form, handle: e.target.value })}
+            />
+            <input
+              className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+              placeholder="City"
+              value={form.city}
+              onChange={(e) => setForm({ ...form, city: e.target.value })}
+            />
+            <input
+              className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+              placeholder="Niche"
+              value={form.niche}
+              onChange={(e) => setForm({ ...form, niche: e.target.value })}
+            />
+          </div>
+          <button
+            className="mt-3 w-full rounded-lg bg-cyan-400 py-2 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={createPersona}
+            type="button"
+            disabled={!canCreatePersona || busyCreate || !form.name || !form.handle}
+          >
+            {busyCreate ? "Creating..." : canCreatePersona ? "Create Persona" : "Persona Limit Reached"}
+          </button>
+        </article>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <article className="panel p-4">
+          <h2 className="text-lg font-black">Your Personas</h2>
           <div className="mt-3 space-y-2">
-            <input className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <input className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2" placeholder="Handle" value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} />
-            <input className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2" placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-            <button className="w-full rounded-lg bg-cyan-400 py-2 font-bold text-slate-950" onClick={createPersona} type="button">Create</button>
+            {personas.length === 0 ? (
+              <p className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3 text-sm text-slate-300">No personas yet.</p>
+            ) : (
+              personas.map((persona) => (
+                <button
+                  key={persona.id}
+                  type="button"
+                  onClick={() => setSelectedPersonaId(persona.id)}
+                  className={`w-full rounded-lg border px-3 py-2 text-left ${
+                    selectedPersonaId === persona.id
+                      ? "border-cyan-300/70 bg-cyan-500/15"
+                      : "border-cyan-300/20 bg-slate-950/50"
+                  }`}
+                >
+                  <p className="font-bold">{persona.name}</p>
+                  <p className="text-xs text-slate-300">@{persona.handle} · {persona.city} · {persona.niche}</p>
+                </button>
+              ))
+            )}
           </div>
         </article>
 
         <article className="panel p-4">
-          <h2 className="text-lg font-bold">Generate FREE Calendar</h2>
-          <p className="mt-1 text-xs text-slate-300">Offline Python engine only, zero API calls.</p>
+          <h2 className="text-lg font-black">Generate Calendar</h2>
+          <p className="mt-1 text-xs text-slate-300">
+            {myPlan?.generation_mode === "llm"
+              ? `Paid AI mode active (${myPlan.generation_days_limit} days per generation).`
+              : `Offline mode active (${myPlan?.generation_days_limit ?? 7} days per generation).`}
+          </p>
+
           <div className="mt-3 space-y-2">
-            <select className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2" value={selectedPersonaId} onChange={(e) => setSelectedPersonaId(e.target.value)}>
+            <select
+              className="w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+              value={selectedPersonaId}
+              onChange={(e) => setSelectedPersonaId(e.target.value)}
+            >
               <option value="">Select persona</option>
               {personas.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
               ))}
             </select>
+
             <div className="flex gap-2">
-              <input className="w-1/2 rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2" type="number" value={month} onChange={(e) => setMonth(Number(e.target.value))} />
-              <input className="w-1/2 rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2" type="number" value={year} onChange={(e) => setYear(Number(e.target.value))} />
+              <input
+                className="w-1/2 rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                type="number"
+                min={1}
+                max={12}
+                value={month}
+                onChange={(e) => setMonth(Number(e.target.value))}
+              />
+              <input
+                className="w-1/2 rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                type="number"
+                min={2025}
+                max={2100}
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              />
             </div>
-            <button className="w-full rounded-lg bg-lime-400 py-2 font-bold text-slate-950" onClick={generateMonth} type="button">Generate</button>
+
+            <button
+              className="w-full rounded-lg bg-lime-400 py-2 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={generateMonth}
+              type="button"
+              disabled={!selectedPersonaId || busyGenerate}
+            >
+              {busyGenerate ? "Generating..." : "Generate Content Plan"}
+            </button>
           </div>
         </article>
       </section>
@@ -175,15 +448,24 @@ export default function DashboardPage() {
 
       {calendar ? (
         <section className="panel p-4">
-          <h2 className="text-lg font-bold">{calendar.year}-{String(calendar.month).padStart(2, "0")} | {calendar.mode.toUpperCase()}</h2>
-          <p className="mt-1 text-xs text-slate-300">Preview first 3 days</p>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-black">
+              Calendar {calendar.year}-{String(calendar.month).padStart(2, "0")}
+            </h2>
+            <span className="rounded-md border border-cyan-300/40 px-2 py-1 text-xs font-bold text-cyan-100">{calendar.mode.toUpperCase()}</span>
+          </div>
+
+          <p className="mt-1 text-xs text-slate-300">Preview first 3 generated days.</p>
+
           <div className="mt-3 space-y-3">
-            {calendar.days.slice(0, 3).map((d) => (
-              <article key={d.day} className="rounded-lg border border-cyan-300/20 p-3">
-                <p className="font-semibold">Day {d.day}: {d.theme} ({d.mood})</p>
-                <ul className="mt-2 space-y-1 text-sm text-slate-200/90">
-                  {d.posts.slice(0, 2).map((p) => (
-                    <li key={p.post_number}>[{p.time}] {p.scene_type} - {p.caption}</li>
+            {calendar.days.slice(0, 3).map((day) => (
+              <article key={day.day} className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3">
+                <p className="font-semibold">
+                  Day {day.day}: {day.theme} ({day.mood})
+                </p>
+                <ul className="mt-2 space-y-1 text-sm text-slate-100">
+                  {day.posts.slice(0, 2).map((post) => (
+                    <li key={post.post_number}>[{post.time}] {post.scene_type} - {post.caption}</li>
                   ))}
                 </ul>
               </article>
@@ -191,6 +473,51 @@ export default function DashboardPage() {
           </div>
         </section>
       ) : null}
+
+      <section className="panel p-4">
+        <h2 className="text-lg font-black">Plans & Upgrade</h2>
+        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          {plans.map((plan) => {
+            const active = plan.id === currentTier;
+            return (
+              <article
+                key={plan.id}
+                className={`rounded-xl border p-3 ${
+                  active ? "border-lime-300/70 bg-lime-500/10" : "border-cyan-300/25 bg-slate-950/45"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-black">{plan.name}</h3>
+                  <p className="text-xs font-bold text-cyan-100">€{plan.monthly_price_eur}/mo</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-200/90">{plan.tagline}</p>
+                <p className="mt-2 text-xs text-slate-300">
+                  {plan.limits.personas} persona(s) · {plan.limits.generation_days} days · {plan.generation_mode.toUpperCase()}
+                </p>
+              </article>
+            );
+          })}
+        </div>
+
+        {upgradeUrl ? (
+          <a
+            href={upgradeUrl}
+            className="mt-4 inline-block rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Upgrade to {currentTier === "free" ? "PRO" : "MAX"}
+          </a>
+        ) : (
+          <p className="mt-4 rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">
+            You are on MAX. Portfolio mode unlocked.
+          </p>
+        )}
+
+        {currentPlanCard ? (
+          <p className="mt-3 text-xs text-slate-300">Current plan outcome focus: {currentPlanCard.tagline}</p>
+        ) : null}
+      </section>
     </main>
   );
 }

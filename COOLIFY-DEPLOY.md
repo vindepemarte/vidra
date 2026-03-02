@@ -17,6 +17,10 @@ Copy from `.env.example` and fill:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_PRO`
 - `STRIPE_PRICE_MAX`
+- `OPENROUTER_API_KEY` (for PRO/MAX generation)
+- `OPENROUTER_MODEL` (the exact model you want to run)
+- `NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL` (optional, dashboard upgrade button)
+- `NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL` (optional, dashboard upgrade button)
 
 Domain variables:
 
