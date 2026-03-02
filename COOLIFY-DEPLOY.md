@@ -17,10 +17,11 @@ Copy from `.env.example` and fill:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_PRO`
 - `STRIPE_PRICE_MAX`
+- `STRIPE_SUCCESS_URL`
+- `STRIPE_CANCEL_URL`
+- `STRIPE_PORTAL_RETURN_URL`
 - `OPENROUTER_API_KEY` (for PRO/MAX generation)
 - `OPENROUTER_MODEL` (the exact model you want to run)
-- `NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL` (optional, dashboard upgrade button)
-- `NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL` (optional, dashboard upgrade button)
 
 Domain variables:
 
@@ -55,3 +56,4 @@ Events to send:
 - `checkout.session.completed`
 - `customer.subscription.created`
 - `customer.subscription.updated`
+- `customer.subscription.deleted`

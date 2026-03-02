@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str | None = None
     stripe_price_pro: str | None = None
     stripe_price_max: str | None = None
+    stripe_success_url: str | None = None
+    stripe_cancel_url: str | None = None
+    stripe_portal_return_url: str | None = None
 
     openrouter_api_key: str | None = None
     openrouter_model: str = "anthropic/claude-sonnet-4-20250514"

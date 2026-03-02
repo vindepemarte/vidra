@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -61,8 +62,6 @@ type CalendarSummary = {
 };
 
 const now = new Date();
-const CHECKOUT_PRO = process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL ?? "";
-const CHECKOUT_MAX = process.env.NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL ?? "";
 
 function prettyTier(tier: string): string {
   return tier.toUpperCase();
@@ -99,6 +98,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busyCreate, setBusyCreate] = useState(false);
   const [busyGenerate, setBusyGenerate] = useState(false);
+  const [busyCheckout, setBusyCheckout] = useState(false);
+  const [busyPortal, setBusyPortal] = useState(false);
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
@@ -133,18 +134,10 @@ export default function DashboardPage() {
           fetch(`${API_URL}/api/personas`, { headers: { Authorization: `Bearer ${token}` } })
         ]);
 
-        if (!overviewRes.ok) {
-          throw new Error(await extractErrorMessage(overviewRes));
-        }
-        if (!myPlanRes.ok) {
-          throw new Error(await extractErrorMessage(myPlanRes));
-        }
-        if (!plansRes.ok) {
-          throw new Error(await extractErrorMessage(plansRes));
-        }
-        if (!personasRes.ok) {
-          throw new Error(await extractErrorMessage(personasRes));
-        }
+        if (!overviewRes.ok) throw new Error(await extractErrorMessage(overviewRes));
+        if (!myPlanRes.ok) throw new Error(await extractErrorMessage(myPlanRes));
+        if (!plansRes.ok) throw new Error(await extractErrorMessage(plansRes));
+        if (!personasRes.ok) throw new Error(await extractErrorMessage(personasRes));
 
         const overviewData = (await overviewRes.json()) as DashboardOverview;
         const myPlanData = (await myPlanRes.json()) as MyPlan;
@@ -170,33 +163,20 @@ export default function DashboardPage() {
   }, [router, status, token]);
 
   const currentTier = useMemo(() => overview?.current_tier ?? "free", [overview?.current_tier]);
+  const upgradeTargetTier = useMemo(() => myPlan?.next_tier ?? null, [myPlan?.next_tier]);
 
   const currentPlanCard = useMemo(
     () => plans.find((plan) => plan.id === currentTier) ?? null,
     [currentTier, plans]
   );
 
-  const upgradeUrl = useMemo(() => {
-    if (currentTier === "free") {
-      return CHECKOUT_PRO;
-    }
-    if (currentTier === "pro") {
-      return CHECKOUT_MAX;
-    }
-    return "";
-  }, [currentTier]);
-
   const canCreatePersona = useMemo(() => {
-    if (!overview) {
-      return true;
-    }
+    if (!overview) return true;
     return overview.personas_count < overview.personas_limit;
   }, [overview]);
 
   async function createPersona() {
-    if (!token || busyCreate) {
-      return;
-    }
+    if (!token || busyCreate) return;
 
     try {
       setBusyCreate(true);
@@ -211,9 +191,7 @@ export default function DashboardPage() {
         body: JSON.stringify(form)
       });
 
-      if (!res.ok) {
-        throw new Error(await extractErrorMessage(res));
-      }
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
 
       const created = (await res.json()) as Persona;
       const next = [created, ...personas];
@@ -233,9 +211,7 @@ export default function DashboardPage() {
   }
 
   async function generateMonth() {
-    if (!token || !selectedPersonaId || busyGenerate) {
-      return;
-    }
+    if (!token || !selectedPersonaId || busyGenerate) return;
 
     try {
       setBusyGenerate(true);
@@ -250,9 +226,7 @@ export default function DashboardPage() {
         body: JSON.stringify({ month, year })
       });
 
-      if (!res.ok) {
-        throw new Error(await extractErrorMessage(res));
-      }
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
 
       const data = (await res.json()) as CalendarSummary;
       setCalendar(data);
@@ -264,6 +238,60 @@ export default function DashboardPage() {
       setError(err instanceof Error ? err.message : "Calendar generation failed");
     } finally {
       setBusyGenerate(false);
+    }
+  }
+
+  async function startCheckout() {
+    if (!token || !upgradeTargetTier || busyCheckout) return;
+
+    try {
+      setBusyCheckout(true);
+      setError("");
+
+      const res = await fetch(`${API_URL}/api/billing/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ tier: upgradeTargetTier })
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const payload = (await res.json()) as { url: string };
+      if (!payload.url) throw new Error("Checkout URL not available.");
+      window.location.href = payload.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot open checkout");
+    } finally {
+      setBusyCheckout(false);
+    }
+  }
+
+  async function openPortal() {
+    if (!token || busyPortal) return;
+
+    try {
+      setBusyPortal(true);
+      setError("");
+
+      const res = await fetch(`${API_URL}/api/billing/portal`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const payload = (await res.json()) as { url: string };
+      if (!payload.url) throw new Error("Billing portal URL not available.");
+      window.location.href = payload.url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot open billing portal");
+    } finally {
+      setBusyPortal(false);
     }
   }
 
@@ -283,6 +311,9 @@ export default function DashboardPage() {
             <div className="rounded-lg border border-lime-300/50 bg-lime-400/15 px-3 py-1 text-xs font-black text-lime-100">
               {prettyTier(currentTier)}
             </div>
+            <Link href="/settings" className="rounded-lg border border-cyan-300/40 px-3 py-1 text-xs font-bold text-cyan-100">
+              Settings
+            </Link>
             <LogoutButton />
           </div>
         </div>
@@ -499,20 +530,33 @@ export default function DashboardPage() {
           })}
         </div>
 
-        {upgradeUrl ? (
-          <a
-            href={upgradeUrl}
-            className="mt-4 inline-block rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Upgrade to {currentTier === "free" ? "PRO" : "MAX"}
-          </a>
-        ) : (
-          <p className="mt-4 rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">
-            You are on MAX. Portfolio mode unlocked.
-          </p>
-        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {upgradeTargetTier ? (
+            <button
+              type="button"
+              onClick={startCheckout}
+              disabled={busyCheckout}
+              className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+            >
+              {busyCheckout ? "Opening checkout..." : `Upgrade to ${upgradeTargetTier.toUpperCase()}`}
+            </button>
+          ) : (
+            <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">
+              You are on MAX. Portfolio mode unlocked.
+            </p>
+          )}
+
+          {currentTier !== "free" ? (
+            <button
+              type="button"
+              onClick={openPortal}
+              disabled={busyPortal}
+              className="rounded-lg border border-cyan-300/40 px-4 py-2 text-sm font-bold text-cyan-100 disabled:opacity-50"
+            >
+              {busyPortal ? "Opening portal..." : "Manage Billing"}
+            </button>
+          ) : null}
+        </div>
 
         {currentPlanCard ? (
           <p className="mt-3 text-xs text-slate-300">Current plan outcome focus: {currentPlanCard.tagline}</p>

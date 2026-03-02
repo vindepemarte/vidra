@@ -114,3 +114,11 @@ class DashboardOverviewOut(BaseModel):
     generation_mode: str
     openrouter_model: str | None = None
     value_snapshot: list[str]
+
+
+class CheckoutRequest(BaseModel):
+    tier: str = Field(pattern="^(pro|max)$")
+
+
+class CheckoutSessionOut(BaseModel):
+    url: str

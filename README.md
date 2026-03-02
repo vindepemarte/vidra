@@ -48,6 +48,9 @@ Required env vars:
 - `STRIPE_WEBHOOK_SECRET=...`
 - `STRIPE_PRICE_PRO=price_xxx`
 - `STRIPE_PRICE_MAX=price_xxx`
+- `STRIPE_SUCCESS_URL=https://vidra.hellolexa.space/dashboard?billing=success`
+- `STRIPE_CANCEL_URL=https://vidra.hellolexa.space/dashboard?billing=cancel`
+- `STRIPE_PORTAL_RETURN_URL=https://vidra.hellolexa.space/settings`
 
 Recommended for paid tiers:
 
@@ -55,9 +58,6 @@ Recommended for paid tiers:
 - `OPENROUTER_MODEL=anthropic/claude-sonnet-4-20250514` (or your preferred model)
 
 Optional upgrade buttons in dashboard:
-
-- `NEXT_PUBLIC_STRIPE_CHECKOUT_PRO_URL=https://checkout.stripe.com/...`
-- `NEXT_PUBLIC_STRIPE_CHECKOUT_MAX_URL=https://checkout.stripe.com/...`
 
 ## API Endpoints
 
@@ -72,6 +72,8 @@ Optional upgrade buttons in dashboard:
 - `GET /api/plans`
 - `GET /api/plans/me`
 - `GET /api/dashboard/overview`
+- `POST /api/billing/checkout`
+- `POST /api/billing/portal`
 - `POST /api/billing/webhook`
 
 ## Notes
