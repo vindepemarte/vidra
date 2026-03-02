@@ -14,7 +14,14 @@ THEMES = [
 ]
 
 SLOTS = ["08:30", "11:00", "13:30", "16:00", "19:00", "21:30"]
-SCENES = ["selfie", "outfit", "daily-routine", "behind-the-scenes", "tips", "recap"]
+SCENES = [
+    "hero-post",
+    "carousel-sequence",
+    "story-sequence",
+    "reel-concept",
+    "niche-tip",
+    "community-prompt",
+]
 
 
 @dataclass
