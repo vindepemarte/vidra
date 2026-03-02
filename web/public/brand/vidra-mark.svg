@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="markGradA" x1="36" y1="36" x2="476" y2="476" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EA7FF"/>
+      <stop offset="1" stop-color="#70E0D2"/>
+    </linearGradient>
+    <linearGradient id="markGradB" x1="120" y1="80" x2="396" y2="396" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8C4FF"/>
+      <stop offset="1" stop-color="#58CBBE"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="136" fill="#0E1526"/>
+  <rect x="28" y="28" width="456" height="456" rx="124" stroke="url(#markGradA)" stroke-opacity="0.6" stroke-width="3"/>
+
+  <path d="M124 132L256 394L388 132" stroke="url(#markGradA)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M178 132L256 286L334 132" stroke="url(#markGradB)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="392" cy="392" r="24" fill="#70E0D2"/>
+  <circle cx="392" cy="392" r="14" fill="#D8FFF8"/>
+</svg>

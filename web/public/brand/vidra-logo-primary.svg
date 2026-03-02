@@ -1,0 +1,29 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vidraGradA" x1="20" y1="20" x2="300" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7EA7FF"/>
+      <stop offset="1" stop-color="#70E0D2"/>
+    </linearGradient>
+    <linearGradient id="vidraGradB" x1="80" y1="40" x2="260" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A8C4FF"/>
+      <stop offset="1" stop-color="#58CBBE"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(20 20)">
+    <rect x="0" y="0" width="280" height="280" rx="76" fill="#0E1526"/>
+    <rect x="12" y="12" width="256" height="256" rx="64" stroke="url(#vidraGradA)" stroke-opacity="0.6" stroke-width="2"/>
+
+    <path d="M68 72L140 216L212 72" stroke="url(#vidraGradA)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M100 72L140 152L180 72" stroke="url(#vidraGradB)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <circle cx="220" cy="220" r="14" fill="#70E0D2"/>
+    <circle cx="220" cy="220" r="8" fill="#D8FFF8"/>
+  </g>
+
+  <g transform="translate(350 78)">
+    <text x="0" y="96" fill="#EEF4FF" font-size="118" font-family="Sora, Manrope, Arial, sans-serif" font-weight="700" letter-spacing="2">VIDRA</text>
+    <text x="3" y="148" fill="#8FA3C8" font-size="34" font-family="Manrope, Arial, sans-serif" font-weight="600" letter-spacing="3">BY LEXA AI</text>
+    <rect x="2" y="166" width="440" height="2" rx="1" fill="#32496B"/>
+  </g>
+</svg>

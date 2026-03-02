@@ -11,7 +11,12 @@ const bodyFont = Manrope({ subsets: ["latin"], variable: "--font-body" });
 
 export const metadata: Metadata = {
   title: "Vidra by Lexa AI",
-  description: "Vidra by Lexa AI is the operating system for AI influencer creators."
+  description: "Vidra by Lexa AI is the operating system for AI influencer creators.",
+  icons: {
+    icon: "/brand/vidra-favicon.svg",
+    shortcut: "/brand/vidra-favicon.svg",
+    apple: "/brand/vidra-favicon.svg"
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
