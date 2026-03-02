@@ -1,4 +1,5 @@
 import logging
+import calendar as pycalendar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -61,7 +62,8 @@ def _generate_drafts(persona: Persona, tier: str, month: int, year: int):
             drafts = paid.days[:days_cap]
             return drafts, f"llm_{tier}"
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Paid generation failed, fallback to offline: %s", exc)
+            logger.exception("Paid generation failed: %s", exc)
+            raise RuntimeError("Paid generation failed. Check OpenRouter API/model configuration.") from exc
 
     drafts = OfflineCalendarEngine.generate_month(
         persona_name=persona.name,
@@ -73,6 +75,13 @@ def _generate_drafts(persona: Persona, tier: str, month: int, year: int):
     return drafts[:days_cap], "offline"
 
 
+def _expected_mode_for_tier(tier: str, *, openrouter_enabled: bool) -> str:
+    policy = generation_mode_for_tier(tier)
+    if policy == "llm" and openrouter_enabled:
+        return f"llm_{tier}"
+    return "offline"
+
+
 @router.post("/{persona_id}/generate", response_model=MonthOut)
 async def generate_calendar(
     persona_id: UUID,
@@ -81,6 +90,11 @@ async def generate_calendar(
     db: AsyncSession = Depends(get_db),
 ) -> MonthOut:
     tier = normalize_tier(user.tier)
+    openrouter_enabled = bool(settings.openrouter_api_key)
+    days_cap = generation_days_for_tier(tier)
+    _, days_in_month = pycalendar.monthrange(payload.year, payload.month)
+    target_days = min(days_cap, days_in_month)
+    expected_mode = _expected_mode_for_tier(tier, openrouter_enabled=openrouter_enabled)
 
     persona_q = await db.execute(select(Persona).where(Persona.id == persona_id, Persona.user_id == user.id))
     persona = persona_q.scalar_one_or_none()
@@ -98,9 +112,23 @@ async def generate_calendar(
     )
     existing = month_q.scalar_one_or_none()
     if existing:
-        return _serialize_month(existing)
+        existing_days = len(existing.days)
+        should_regenerate = (
+            payload.force_regenerate
+            or existing.mode != expected_mode
+            or existing_days != target_days
+        )
 
-    drafts, mode = _generate_drafts(persona=persona, tier=tier, month=payload.month, year=payload.year)
+        if not should_regenerate:
+            return _serialize_month(existing)
+
+        await db.delete(existing)
+        await db.flush()
+
+    try:
+        drafts, mode = _generate_drafts(persona=persona, tier=tier, month=payload.month, year=payload.year)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     month = CalendarMonth(persona_id=persona.id, month=payload.month, year=payload.year, mode=mode)
     db.add(month)

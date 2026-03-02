@@ -14,6 +14,7 @@ type MyPlan = {
   personas_limit: number;
   generation_days_limit: number;
   generation_mode: string;
+  openrouter_enabled?: boolean;
   openrouter_model?: string | null;
 };
 
@@ -26,6 +27,12 @@ type Plan = {
   limits: { personas: number; generation_days: number };
   generation_mode: string;
 };
+
+function tierRank(tier: string): number {
+  if (tier === "max") return 3;
+  if (tier === "pro") return 2;
+  return 1;
+}
 
 async function extractErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
@@ -46,7 +53,7 @@ export default function SettingsPage() {
   const [myPlan, setMyPlan] = useState<MyPlan | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busyCheckout, setBusyCheckout] = useState(false);
+  const [busyCheckoutTier, setBusyCheckoutTier] = useState<string | null>(null);
   const [busyPortal, setBusyPortal] = useState(false);
   const [error, setError] = useState("");
 
@@ -85,13 +92,16 @@ export default function SettingsPage() {
     void load();
   }, [router, status, token]);
 
-  const upgradeTargetTier = useMemo(() => myPlan?.next_tier ?? null, [myPlan?.next_tier]);
+  const upgradeOptions = useMemo(() => {
+    if (!myPlan) return [] as Plan[];
+    return plans.filter((plan) => tierRank(plan.id) > tierRank(myPlan.current_tier));
+  }, [plans, myPlan]);
 
-  async function startCheckout() {
-    if (!token || !upgradeTargetTier || busyCheckout) return;
+  async function startCheckout(targetTier: string) {
+    if (!token || busyCheckoutTier) return;
 
     try {
-      setBusyCheckout(true);
+      setBusyCheckoutTier(targetTier);
       setError("");
 
       const res = await fetch(`${API_URL}/api/billing/checkout`, {
@@ -100,7 +110,7 @@ export default function SettingsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ tier: upgradeTargetTier })
+        body: JSON.stringify({ tier: targetTier })
       });
 
       if (!res.ok) throw new Error(await extractErrorMessage(res));
@@ -109,8 +119,7 @@ export default function SettingsPage() {
       window.location.href = payload.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot open checkout");
-    } finally {
-      setBusyCheckout(false);
+      setBusyCheckoutTier(null);
     }
   }
 
@@ -165,18 +174,23 @@ export default function SettingsPage() {
 
         {myPlan?.openrouter_model ? (
           <p className="mt-2 text-xs text-cyan-100">Active paid model: {myPlan.openrouter_model}</p>
+        ) : myPlan?.current_tier !== "free" ? (
+          <p className="mt-2 text-xs text-orange-200">Paid tier active but OpenRouter key is missing, generation will fallback to offline.</p>
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {upgradeTargetTier ? (
-            <button
-              type="button"
-              onClick={startCheckout}
-              disabled={busyCheckout}
-              className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
-            >
-              {busyCheckout ? "Opening checkout..." : `Upgrade to ${upgradeTargetTier.toUpperCase()}`}
-            </button>
+          {upgradeOptions.length > 0 ? (
+            upgradeOptions.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                onClick={() => startCheckout(plan.id)}
+                disabled={busyCheckoutTier !== null}
+                className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+              >
+                {busyCheckoutTier === plan.id ? "Opening checkout..." : `Upgrade to ${plan.name}`}
+              </button>
+            ))
           ) : (
             <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">MAX active.</p>
           )}

@@ -55,6 +55,7 @@ class PersonaOut(BaseModel):
 class GenerateCalendarRequest(BaseModel):
     month: int = Field(ge=1, le=12)
     year: int = Field(ge=2025, le=2100)
+    force_regenerate: bool = False
 
 
 class PostOut(BaseModel):
@@ -102,6 +103,7 @@ class MyPlanOut(BaseModel):
     personas_limit: int
     generation_days_limit: int
     generation_mode: str
+    openrouter_enabled: bool = False
     openrouter_model: str | None = None
 
 
@@ -112,6 +114,7 @@ class DashboardOverviewOut(BaseModel):
     generated_months_count: int
     generation_days_limit: int
     generation_mode: str
+    openrouter_enabled: bool = False
     openrouter_model: str | None = None
     value_snapshot: list[str]
 

@@ -79,6 +79,13 @@ def generation_mode_for_tier(tier: str | None) -> str:
     return PLAN_DEFINITIONS[normalize_tier(tier)].generation_mode
 
 
+def effective_generation_mode_for_tier(tier: str | None, *, openrouter_enabled: bool) -> str:
+    policy_mode = generation_mode_for_tier(tier)
+    if policy_mode == "llm" and openrouter_enabled:
+        return "llm"
+    return "offline"
+
+
 def upgrade_target_for_tier(tier: str | None) -> str | None:
     normalized = normalize_tier(tier)
     if normalized == "free":

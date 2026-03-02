@@ -36,6 +36,7 @@ type DashboardOverview = {
   generated_months_count: number;
   generation_days_limit: number;
   generation_mode: string;
+  openrouter_enabled?: boolean;
   openrouter_model?: string | null;
   value_snapshot: string[];
 };
@@ -46,6 +47,7 @@ type MyPlan = {
   personas_limit: number;
   generation_days_limit: number;
   generation_mode: string;
+  openrouter_enabled?: boolean;
   openrouter_model?: string | null;
 };
 
@@ -62,6 +64,12 @@ type CalendarSummary = {
 };
 
 const now = new Date();
+
+function tierRank(tier: string): number {
+  if (tier === "max") return 3;
+  if (tier === "pro") return 2;
+  return 1;
+}
 
 function prettyTier(tier: string): string {
   return tier.toUpperCase();
@@ -98,8 +106,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busyCreate, setBusyCreate] = useState(false);
   const [busyGenerate, setBusyGenerate] = useState(false);
-  const [busyCheckout, setBusyCheckout] = useState(false);
+  const [busyCheckoutTier, setBusyCheckoutTier] = useState<string | null>(null);
   const [busyPortal, setBusyPortal] = useState(false);
+  const [forceRegenerate, setForceRegenerate] = useState(true);
+  const [showAllDays, setShowAllDays] = useState(false);
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
@@ -119,9 +129,7 @@ export default function DashboardPage() {
     }
 
     async function boot() {
-      if (!token) {
-        return;
-      }
+      if (!token) return;
 
       try {
         setLoading(true);
@@ -163,17 +171,38 @@ export default function DashboardPage() {
   }, [router, status, token]);
 
   const currentTier = useMemo(() => overview?.current_tier ?? "free", [overview?.current_tier]);
-  const upgradeTargetTier = useMemo(() => myPlan?.next_tier ?? null, [myPlan?.next_tier]);
 
   const currentPlanCard = useMemo(
     () => plans.find((plan) => plan.id === currentTier) ?? null,
     [currentTier, plans]
   );
 
+  const upgradeOptions = useMemo(
+    () => plans.filter((plan) => tierRank(plan.id) > tierRank(currentTier)),
+    [plans, currentTier]
+  );
+
   const canCreatePersona = useMemo(() => {
     if (!overview) return true;
     return overview.personas_count < overview.personas_limit;
   }, [overview]);
+
+  const generationStatus = useMemo(() => {
+    if (!myPlan) return "Loading generation mode...";
+
+    const tier = myPlan.current_tier;
+    const isPaidTier = tier === "pro" || tier === "max";
+
+    if (myPlan.generation_mode === "llm" && myPlan.openrouter_enabled) {
+      return `Paid AI mode active (${myPlan.generation_days_limit} days per generation).`;
+    }
+
+    if (isPaidTier && !myPlan.openrouter_enabled) {
+      return `Paid tier detected but OpenRouter is not configured. Falling back to offline mode (${myPlan.generation_days_limit} days).`;
+    }
+
+    return `Offline mode active (${myPlan.generation_days_limit} days per generation).`;
+  }, [myPlan]);
 
   async function createPersona() {
     if (!token || busyCreate) return;
@@ -223,13 +252,14 @@ export default function DashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ month, year })
+        body: JSON.stringify({ month, year, force_regenerate: forceRegenerate })
       });
 
       if (!res.ok) throw new Error(await extractErrorMessage(res));
 
       const data = (await res.json()) as CalendarSummary;
       setCalendar(data);
+      setShowAllDays(false);
 
       if (overview) {
         setOverview({ ...overview, generated_months_count: overview.generated_months_count + 1 });
@@ -241,11 +271,11 @@ export default function DashboardPage() {
     }
   }
 
-  async function startCheckout() {
-    if (!token || !upgradeTargetTier || busyCheckout) return;
+  async function startCheckout(targetTier: string) {
+    if (!token || busyCheckoutTier) return;
 
     try {
-      setBusyCheckout(true);
+      setBusyCheckoutTier(targetTier);
       setError("");
 
       const res = await fetch(`${API_URL}/api/billing/checkout`, {
@@ -254,7 +284,7 @@ export default function DashboardPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ tier: upgradeTargetTier })
+        body: JSON.stringify({ tier: targetTier })
       });
 
       if (!res.ok) throw new Error(await extractErrorMessage(res));
@@ -264,8 +294,7 @@ export default function DashboardPage() {
       window.location.href = payload.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot open checkout");
-    } finally {
-      setBusyCheckout(false);
+      setBusyCheckoutTier(null);
     }
   }
 
@@ -298,6 +327,9 @@ export default function DashboardPage() {
   if (status === "loading" || loading) {
     return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading control deck...</main>;
   }
+
+  const totalDays = calendar?.days.length ?? 0;
+  const visibleDays = showAllDays ? totalDays : Math.min(totalDays, 7);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-7">
@@ -424,11 +456,7 @@ export default function DashboardPage() {
 
         <article className="panel p-4">
           <h2 className="text-lg font-black">Generate Calendar</h2>
-          <p className="mt-1 text-xs text-slate-300">
-            {myPlan?.generation_mode === "llm"
-              ? `Paid AI mode active (${myPlan.generation_days_limit} days per generation).`
-              : `Offline mode active (${myPlan?.generation_days_limit ?? 7} days per generation).`}
-          </p>
+          <p className="mt-1 text-xs text-slate-300">{generationStatus}</p>
 
           <div className="mt-3 space-y-2">
             <select
@@ -463,6 +491,15 @@ export default function DashboardPage() {
               />
             </div>
 
+            <label className="flex items-center gap-2 rounded-lg border border-cyan-300/20 bg-slate-950/50 px-3 py-2 text-xs text-slate-200">
+              <input
+                type="checkbox"
+                checked={forceRegenerate}
+                onChange={(e) => setForceRegenerate(e.target.checked)}
+              />
+              Regenerate month if it already exists (recommended after plan change)
+            </label>
+
             <button
               className="w-full rounded-lg bg-lime-400 py-2 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
               onClick={generateMonth}
@@ -486,10 +523,12 @@ export default function DashboardPage() {
             <span className="rounded-md border border-cyan-300/40 px-2 py-1 text-xs font-bold text-cyan-100">{calendar.mode.toUpperCase()}</span>
           </div>
 
-          <p className="mt-1 text-xs text-slate-300">Preview first 3 generated days.</p>
+          <p className="mt-1 text-xs text-slate-300">
+            Generated {calendar.days.length} day(s). Showing {visibleDays}.
+          </p>
 
           <div className="mt-3 space-y-3">
-            {calendar.days.slice(0, 3).map((day) => (
+            {calendar.days.slice(0, visibleDays).map((day) => (
               <article key={day.day} className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3">
                 <p className="font-semibold">
                   Day {day.day}: {day.theme} ({day.mood})
@@ -502,6 +541,16 @@ export default function DashboardPage() {
               </article>
             ))}
           </div>
+
+          {calendar.days.length > 7 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllDays((v) => !v)}
+              className="mt-3 rounded-lg border border-cyan-300/40 px-3 py-2 text-sm font-bold text-cyan-100"
+            >
+              {showAllDays ? "Show less" : "Show all generated days"}
+            </button>
+          ) : null}
         </section>
       ) : null}
 
@@ -531,15 +580,18 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {upgradeTargetTier ? (
-            <button
-              type="button"
-              onClick={startCheckout}
-              disabled={busyCheckout}
-              className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
-            >
-              {busyCheckout ? "Opening checkout..." : `Upgrade to ${upgradeTargetTier.toUpperCase()}`}
-            </button>
+          {upgradeOptions.length > 0 ? (
+            upgradeOptions.map((targetPlan) => (
+              <button
+                key={targetPlan.id}
+                type="button"
+                onClick={() => startCheckout(targetPlan.id)}
+                disabled={busyCheckoutTier !== null}
+                className="rounded-lg bg-orange-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+              >
+                {busyCheckoutTier === targetPlan.id ? "Opening checkout..." : `Upgrade to ${targetPlan.name}`}
+              </button>
+            ))
           ) : (
             <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 px-3 py-2 text-sm text-lime-100">
               You are on MAX. Portfolio mode unlocked.
