@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    stripe_price_pro: str | None = None
+    stripe_price_max: str | None = None
 
 
 settings = Settings()

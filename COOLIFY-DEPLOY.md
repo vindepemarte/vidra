@@ -15,6 +15,8 @@ Copy from `.env.example` and fill:
 - `JWT_SECRET`
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRICE_PRO`
+- `STRIPE_PRICE_MAX`
 
 Domain variables:
 

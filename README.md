@@ -31,6 +31,8 @@ Required env vars:
 - `POSTGRES_DB=vidra`
 - `STRIPE_SECRET_KEY=...`
 - `STRIPE_WEBHOOK_SECRET=...`
+- `STRIPE_PRICE_PRO=price_xxx`
+- `STRIPE_PRICE_MAX=price_xxx`
 
 Optional for PRO/MAX:
 
@@ -51,4 +53,4 @@ Optional for PRO/MAX:
 ## Notes
 
 - This MVP intentionally auto-creates DB tables on API startup.
-- Stripe price ID mapping for PRO/MAX is in `api/vidra_api/routes/billing.py`.
+- Stripe price ID mapping is configured via env (`STRIPE_PRICE_PRO`, `STRIPE_PRICE_MAX`).

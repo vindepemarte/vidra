@@ -14,10 +14,23 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 if settings.stripe_secret_key:
     stripe.api_key = settings.stripe_secret_key
 
-PLAN_FROM_PRICE = {
-    "price_pro": "pro",
-    "price_max": "max",
-}
+def resolve_plan_from_event(data_obj: dict) -> str:
+    plan_from_price: dict[str, str] = {}
+    if settings.stripe_price_pro:
+        plan_from_price[settings.stripe_price_pro] = "pro"
+    if settings.stripe_price_max:
+        plan_from_price[settings.stripe_price_max] = "max"
+
+    # Default fallback keeps existing behavior if price IDs are not configured yet.
+    if not plan_from_price:
+        return "pro"
+
+    items = data_obj.get("items", {}).get("data", [])
+    for item in items:
+        price_id = item.get("price", {}).get("id")
+        if price_id in plan_from_price:
+            return plan_from_price[price_id]
+    return "pro"
 
 
 @router.post("/webhook")
@@ -41,14 +54,7 @@ async def stripe_webhook(request: Request, stripe_signature: str | None = Header
     customer_id = data_obj.get("customer")
     subscription_id = data_obj.get("subscription") or data_obj.get("id")
     email = data_obj.get("customer_details", {}).get("email") or data_obj.get("customer_email")
-    items = data_obj.get("items", {}).get("data", [])
-
-    plan = "pro"
-    for item in items:
-        price_id = item.get("price", {}).get("id")
-        if price_id in PLAN_FROM_PRICE:
-            plan = PLAN_FROM_PRICE[price_id]
-            break
+    plan = resolve_plan_from_event(data_obj)
 
     async with SessionLocal() as db:  # type: AsyncSession
         if email:
