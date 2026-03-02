@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import asyncio
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,11 +9,23 @@ from vidra_api.config import settings
 from vidra_api.database import Base, engine
 from vidra_api.routes import auth, billing, calendar, export, personas
 
+logger = logging.getLogger("vidra_api")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Coolify can start API right after Postgres turns healthy; add retry to avoid startup races.
+    max_attempts = 20
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            break
+        except Exception:
+            logger.exception("Database init failed on attempt %s/%s", attempt, max_attempts)
+            if attempt == max_attempts:
+                raise
+            await asyncio.sleep(2)
     yield
 
 
