@@ -19,23 +19,43 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("personas", sa.Column("gender", sa.String(length=16), nullable=True, server_default="female"))
-    op.create_index("ix_personas_user_created", "personas", ["user_id", "created_at"], unique=False)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
 
-    op.add_column("persona_profiles", sa.Column("generation_status", sa.String(length=32), nullable=False, server_default="empty"))
-    op.add_column("persona_profiles", sa.Column("generation_requested_mode", sa.String(length=16), nullable=True))
-    op.add_column("persona_profiles", sa.Column("generation_effective_mode", sa.String(length=16), nullable=True))
-    op.add_column("persona_profiles", sa.Column("generation_model_used", sa.String(length=255), nullable=True))
-    op.add_column("persona_profiles", sa.Column("generation_error", sa.Text(), nullable=True))
-    op.add_column("persona_profiles", sa.Column("generation_started_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("persona_profiles", sa.Column("generation_completed_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("persona_profiles", sa.Column("generation_run_id", sa.String(length=64), nullable=True))
-    op.create_index(
-        "ix_persona_profiles_persona_status",
-        "persona_profiles",
-        ["persona_id", "generation_status"],
-        unique=False,
-    )
+    persona_columns = {col["name"] for col in inspector.get_columns("personas")}
+    persona_indexes = {idx["name"] for idx in inspector.get_indexes("personas")}
+
+    if "gender" not in persona_columns:
+        op.add_column("personas", sa.Column("gender", sa.String(length=16), nullable=True, server_default="female"))
+    if "ix_personas_user_created" not in persona_indexes:
+        op.create_index("ix_personas_user_created", "personas", ["user_id", "created_at"], unique=False)
+
+    profile_columns = {col["name"] for col in inspector.get_columns("persona_profiles")}
+    profile_indexes = {idx["name"] for idx in inspector.get_indexes("persona_profiles")}
+
+    if "generation_status" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_status", sa.String(length=32), nullable=False, server_default="empty"))
+    if "generation_requested_mode" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_requested_mode", sa.String(length=16), nullable=True))
+    if "generation_effective_mode" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_effective_mode", sa.String(length=16), nullable=True))
+    if "generation_model_used" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_model_used", sa.String(length=255), nullable=True))
+    if "generation_error" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_error", sa.Text(), nullable=True))
+    if "generation_started_at" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_started_at", sa.DateTime(timezone=True), nullable=True))
+    if "generation_completed_at" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_completed_at", sa.DateTime(timezone=True), nullable=True))
+    if "generation_run_id" not in profile_columns:
+        op.add_column("persona_profiles", sa.Column("generation_run_id", sa.String(length=64), nullable=True))
+    if "ix_persona_profiles_persona_status" not in profile_indexes:
+        op.create_index(
+            "ix_persona_profiles_persona_status",
+            "persona_profiles",
+            ["persona_id", "generation_status"],
+            unique=False,
+        )
 
     op.execute(
         """
