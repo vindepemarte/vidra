@@ -119,6 +119,38 @@ def _mark_profile_queued(profile: PersonaProfile, *, requested_mode: str, run_id
     profile.updated_at = datetime.utcnow()
 
 
+def _profile_job_is_stale(profile: PersonaProfile) -> bool:
+    now = dt.datetime.utcnow()
+    status_value = (profile.generation_status or "").strip().lower()
+
+    if status_value == "generating":
+        started_at = profile.generation_started_at or profile.updated_at
+        if not started_at:
+            return False
+        return (now - started_at).total_seconds() > (settings.profile_generation_timeout_seconds + 45)
+
+    if status_value == "queued":
+        queued_since = profile.updated_at or profile.created_at
+        if not queued_since:
+            return False
+        return (now - queued_since).total_seconds() > 180
+
+    return False
+
+
+async def _recover_stale_profile_job(db: AsyncSession, profile: PersonaProfile) -> bool:
+    if not _profile_job_is_stale(profile):
+        return False
+
+    profile.generation_status = "failed"
+    profile.generation_error = "Profile generation stalled (deploy/restart/timeout). Retry now."
+    profile.generation_completed_at = dt.datetime.utcnow()
+    profile.updated_at = dt.datetime.utcnow()
+    await db.commit()
+    await db.refresh(profile)
+    return True
+
+
 async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, requested_mode: str, run_id: str) -> None:
     async with SessionLocal() as db:  # type: AsyncSession
         user_q = await db.execute(select(User).where(User.id == user_id))
@@ -283,6 +315,10 @@ async def get_persona_detail(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
+    if persona.profile is not None:
+        await _recover_stale_profile_job(db, persona.profile)
+        await db.refresh(persona, attribute_names=["profile"])
+
     media_count = int(
         (
             await db.scalar(
@@ -334,6 +370,9 @@ async def get_persona_profile_status(
     persona = result.scalar_one_or_none()
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
+
+    if persona.profile is not None:
+        await _recover_stale_profile_job(db, persona.profile)
 
     return _compute_profile_status(persona.profile)
 
