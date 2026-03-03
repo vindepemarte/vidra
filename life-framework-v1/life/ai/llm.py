@@ -22,8 +22,8 @@ class LLM:
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY not set in .env")
         self.model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-20250514")
-        timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "45"))
-        max_retries = int(os.getenv("OPENROUTER_MAX_RETRIES", "1"))
+        timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "180"))
+        max_retries = int(os.getenv("OPENROUTER_MAX_RETRIES", "3"))
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,

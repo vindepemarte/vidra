@@ -104,8 +104,8 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
     mode_hint = (effective_mode or requested_mode or "offline").lower()
 
     if mode_hint == "llm":
-        # LLM persona build performs many sequential calls; realistic duration is several minutes.
-        estimated_total_seconds = max(480, settings.profile_generation_timeout_seconds)
+        # LLM persona build performs many sequential calls; keep expectation generous (20-30 min upper bound).
+        estimated_total_seconds = max(1800, settings.profile_generation_timeout_seconds)
     elif mode_hint == "offline":
         estimated_total_seconds = 20
     else:
@@ -201,8 +201,8 @@ def _profile_job_is_stale(profile: PersonaProfile) -> bool:
         started_at = _as_utc(profile.generation_started_at or profile.updated_at)
         if not started_at:
             return False
-        # Keep this generous to avoid false negatives on long LLM profile builds.
-        return (now - started_at).total_seconds() > 3600
+        # Keep generous to avoid false negatives on long LLM profile builds (2h guard).
+        return (now - started_at).total_seconds() > 7200
 
     if status_value == "queued":
         queued_since = _as_utc(profile.updated_at or profile.created_at)
@@ -283,24 +283,36 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         bundle: PersonaProfileBundle
         model_used: str
         final_effective_mode = effective_mode
-        try:
-            if effective_mode == "llm":
-                # Do not apply a short global timeout here: per-call OpenRouter timeout is already enforced.
-                bundle = await asyncio.to_thread(build_llm_profile, persona)
-                model_used = settings.openrouter_model
-            else:
+
+        if effective_mode == "llm":
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    bundle = await asyncio.to_thread(build_llm_profile, persona)
+                    model_used = settings.openrouter_model
+                    llm_error = None
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    llm_error = exc
+                    if attempt < max_attempts:
+                        profile.generation_error = f"OpenRouter attempt {attempt}/{max_attempts} failed: {exc}. Retrying..."
+                        profile.updated_at = _utc_now()
+                        await db.commit()
+                        await asyncio.sleep(2.0 * attempt)
+                        continue
+                    profile.generation_status = "failed"
+                    profile.generation_error = f"OpenRouter profile generation failed after {max_attempts} attempts: {exc}"
+                    profile.generation_completed_at = _utc_now()
+                    profile.updated_at = _utc_now()
+                    await db.commit()
+                    return
+        else:
+            try:
                 bundle = build_offline_profile(persona)
                 model_used = "offline"
-        except Exception as exc:  # noqa: BLE001
-            llm_error = exc
-            # For AUTO mode, fallback to offline instead of failing persona creation/profile unlock.
-            if requested_mode == "auto" and effective_mode == "llm":
-                bundle = build_offline_profile(persona)
-                model_used = "offline"
-                final_effective_mode = "offline"
-            else:
+            except Exception as exc:  # noqa: BLE001
                 profile.generation_status = "failed"
-                profile.generation_error = f"Profile generation failed: {exc}"
+                profile.generation_error = f"Offline profile generation failed: {exc}"
                 profile.generation_completed_at = _utc_now()
                 profile.updated_at = _utc_now()
                 await db.commit()
@@ -316,8 +328,8 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         profile.generation_effective_mode = final_effective_mode
         profile.generation_model_used = model_used
         profile.generation_error = None
-        if llm_error is not None and requested_mode == "auto" and effective_mode == "llm":
-            profile.generation_model_used = f"{model_used} (auto-fallback)"
+        if llm_error is not None and effective_mode == "llm":
+            profile.generation_model_used = f"{model_used} (retried, last error: {llm_error})"
         if profile.generation_started_at is None:
             profile.generation_started_at = _utc_now()
         profile.generation_completed_at = _utc_now()
