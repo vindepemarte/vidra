@@ -4,12 +4,14 @@ import { notFound } from "next/navigation";
 import { getAllBlogPosts, getBlogPostBySlug } from "@/lib/blog-posts";
 
 export function generateStaticParams() {
-  return getAllBlogPosts().map((post) => ({ slug: post.slug }));
+  return getAllBlogPosts()
+    .filter((post) => post.body.length > 0)
+    .map((post) => ({ slug: post.slug }));
 }
 
 export default function BlogPostPage({ params }: { params: { slug: string } }) {
   const post = getBlogPostBySlug(params.slug);
-  if (!post) {
+  if (!post || post.body.length === 0) {
     notFound();
   }
 
@@ -37,4 +39,3 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
     </main>
   );
 }
-
