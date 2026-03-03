@@ -24,6 +24,7 @@ from vidra_api.schemas import (
     PersonaProfileGenerateRequest,
     PersonaProfileStatusOut,
 )
+from vidra_api.services.model_preferences import resolve_openrouter_model
 
 router = APIRouter(prefix="/personas", tags=["personas"])
 
@@ -113,8 +114,12 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
 
     elapsed_seconds = 0
     started_at = _as_utc(profile.generation_started_at)
+    completed_at = _as_utc(profile.generation_completed_at)
     if started_at:
-        elapsed_seconds = max(0, int((_utc_now() - started_at).total_seconds()))
+        if status_value in {"ready", "failed"} and completed_at:
+            elapsed_seconds = max(0, int((completed_at - started_at).total_seconds()))
+        else:
+            elapsed_seconds = max(0, int((_utc_now() - started_at).total_seconds()))
 
     if status_value == "empty":
         progress_percent = 0
@@ -128,7 +133,8 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
         if elapsed_seconds < 4:
             generation_step = "Preparing persona context"
         elif mode_hint == "llm":
-            generation_step = f"Generating with OpenRouter ({settings.openrouter_model})"
+            model_label = profile.generation_model_used or settings.openrouter_model
+            generation_step = f"Generating with OpenRouter ({model_label})"
         else:
             generation_step = "Building offline persona intelligence"
     elif status_value == "ready":
@@ -263,6 +269,7 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         profile.updated_at = _utc_now()
         await db.commit()
 
+        selected_openrouter_model = None
         if effective_mode == "llm":
             if tier not in {"pro", "max"}:
                 profile.generation_status = "failed"
@@ -278,6 +285,9 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
                 profile.updated_at = _utc_now()
                 await db.commit()
                 return
+            selected_openrouter_model = await resolve_openrouter_model(db, user.id)
+            profile.generation_model_used = selected_openrouter_model
+            await db.commit()
 
         llm_error: Exception | None = None
         bundle: PersonaProfileBundle
@@ -288,8 +298,8 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
             max_attempts = 3
             for attempt in range(1, max_attempts + 1):
                 try:
-                    bundle = await asyncio.to_thread(build_llm_profile, persona)
-                    model_used = settings.openrouter_model
+                    bundle = await asyncio.to_thread(build_llm_profile, persona, selected_openrouter_model)
+                    model_used = selected_openrouter_model or settings.openrouter_model
                     llm_error = None
                     break
                 except Exception as exc:  # noqa: BLE001

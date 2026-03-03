@@ -223,6 +223,34 @@ class ApiKeyListOut(BaseModel):
     keys: list[ApiKeyMaskOut]
 
 
+class ModelPreferencesOut(BaseModel):
+    openrouter_model: str | None = None
+    fal_image_model: str | None = None
+    fal_edit_model: str | None = None
+    fal_upscale_model: str | None = None
+    fal_train_model: str | None = None
+
+
+class ModelPreferencesUpdateRequest(BaseModel):
+    openrouter_model: str | None = None
+    fal_image_model: str | None = None
+    fal_edit_model: str | None = None
+    fal_upscale_model: str | None = None
+    fal_train_model: str | None = None
+
+
+class ProviderModelOptionOut(BaseModel):
+    id: str
+    label: str
+    operation: str
+    credits_hint: str
+
+
+class ProviderModelCatalogOut(BaseModel):
+    openrouter: list[ProviderModelOptionOut] = Field(default_factory=list)
+    fal: list[ProviderModelOptionOut] = Field(default_factory=list)
+
+
 class MediaJobOut(BaseModel):
     id: UUID
     user_id: UUID
@@ -259,6 +287,10 @@ class MediaGenerateImageRequest(BaseModel):
     post_id: UUID | None = None
     prompt: str = Field(min_length=3)
     model: str | None = None
+    persona_lora_id: UUID | None = None
+    width: int | None = Field(default=None, ge=256, le=4096)
+    height: int | None = Field(default=None, ge=256, le=4096)
+    num_images: int | None = Field(default=1, ge=1, le=4)
 
 
 class MediaEditImageRequest(BaseModel):
@@ -267,6 +299,39 @@ class MediaEditImageRequest(BaseModel):
     prompt: str = Field(min_length=3)
     source_media_id: UUID
     model: str | None = None
+
+
+class MediaUpscaleImageRequest(BaseModel):
+    persona_id: UUID
+    post_id: UUID | None = None
+    source_media_id: UUID
+    model: str | None = None
+    upscale_factor: int | None = Field(default=2, ge=2, le=4)
+
+
+class PersonaLoraAttachRequest(BaseModel):
+    persona_id: UUID
+    name: str = Field(min_length=2, max_length=255)
+    external_lora_id: str = Field(min_length=6, max_length=512)
+    trigger_word: str | None = Field(default=None, max_length=255)
+    set_default: bool = True
+
+
+class PersonaLoraOut(BaseModel):
+    id: UUID
+    persona_id: UUID
+    name: str
+    provider: str
+    external_lora_id: str
+    trigger_word: str | None = None
+    status: str
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PersonaLoraListOut(BaseModel):
+    loras: list[PersonaLoraOut]
 
 
 class PersonaProfileOut(BaseModel):

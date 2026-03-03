@@ -74,6 +74,26 @@ type ApiKeyList = {
   keys: ApiKeyMask[];
 };
 
+type ModelPreferences = {
+  openrouter_model?: string | null;
+  fal_image_model?: string | null;
+  fal_edit_model?: string | null;
+  fal_upscale_model?: string | null;
+  fal_train_model?: string | null;
+};
+
+type ProviderModelOption = {
+  id: string;
+  label: string;
+  operation: string;
+  credits_hint: string;
+};
+
+type ProviderModelCatalog = {
+  openrouter: ProviderModelOption[];
+  fal: ProviderModelOption[];
+};
+
 type TopupPack = {
   id: "starter" | "growth" | "scale";
   name: string;
@@ -119,6 +139,14 @@ export default function SettingsPage() {
   const [wallet, setWallet] = useState<CreditWallet | null>(null);
   const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKeyMask[]>([]);
+  const [modelPrefs, setModelPrefs] = useState<ModelPreferences>({
+    openrouter_model: "",
+    fal_image_model: "",
+    fal_edit_model: "",
+    fal_upscale_model: "",
+    fal_train_model: "",
+  });
+  const [modelCatalog, setModelCatalog] = useState<ProviderModelCatalog>({ openrouter: [], fal: [] });
 
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({ openrouter: "", fal: "" });
   const [loading, setLoading] = useState(true);
@@ -127,6 +155,7 @@ export default function SettingsPage() {
   const [busyTopup, setBusyTopup] = useState<string | null>(null);
   const [busySaveProvider, setBusySaveProvider] = useState<string | null>(null);
   const [busyDeleteProvider, setBusyDeleteProvider] = useState<string | null>(null);
+  const [busySaveModelPrefs, setBusySaveModelPrefs] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -142,12 +171,14 @@ export default function SettingsPage() {
         setLoading(true);
         setError("");
 
-        const [myPlanRes, plansRes, walletRes, ledgerRes, keysRes] = await Promise.all([
+        const [myPlanRes, plansRes, walletRes, ledgerRes, keysRes, modelPrefsRes, providerModelsRes] = await Promise.all([
           fetch(`${API_URL}/api/plans/me`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/plans`),
           fetch(`${API_URL}/api/credits/wallet`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/credits/ledger`, { headers: { Authorization: `Bearer ${token}` } }),
-          fetch(`${API_URL}/api/account/api-keys`, { headers: { Authorization: `Bearer ${token}` } })
+          fetch(`${API_URL}/api/account/api-keys`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/account/model-preferences`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/account/provider-models`, { headers: { Authorization: `Bearer ${token}` } })
         ]);
 
         if (!myPlanRes.ok) throw new Error(await extractErrorMessage(myPlanRes));
@@ -155,18 +186,30 @@ export default function SettingsPage() {
         if (!walletRes.ok) throw new Error(await extractErrorMessage(walletRes));
         if (!ledgerRes.ok) throw new Error(await extractErrorMessage(ledgerRes));
         if (!keysRes.ok) throw new Error(await extractErrorMessage(keysRes));
+        if (!modelPrefsRes.ok) throw new Error(await extractErrorMessage(modelPrefsRes));
+        if (!providerModelsRes.ok) throw new Error(await extractErrorMessage(providerModelsRes));
 
         const myPlanData = (await myPlanRes.json()) as MyPlan;
         const plansData = (await plansRes.json()) as { plans: Plan[] };
         const walletData = (await walletRes.json()) as CreditWallet;
         const ledgerData = (await ledgerRes.json()) as CreditLedger;
         const keysData = (await keysRes.json()) as ApiKeyList;
+        const prefsData = (await modelPrefsRes.json()) as ModelPreferences;
+        const providerModelsData = (await providerModelsRes.json()) as ProviderModelCatalog;
 
         setMyPlan(myPlanData);
         setPlans(plansData.plans);
         setWallet(walletData);
         setLedger(ledgerData.entries);
         setApiKeys(keysData.keys);
+        setModelPrefs({
+          openrouter_model: prefsData.openrouter_model || "",
+          fal_image_model: prefsData.fal_image_model || "",
+          fal_edit_model: prefsData.fal_edit_model || "",
+          fal_upscale_model: prefsData.fal_upscale_model || "",
+          fal_train_model: prefsData.fal_train_model || "",
+        });
+        setModelCatalog(providerModelsData);
 
         const query = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
         const billing = query?.get("billing");
@@ -190,17 +233,28 @@ export default function SettingsPage() {
 
   async function refreshCreditsAndKeys(): Promise<void> {
     if (!token) return;
-    const [walletRes, ledgerRes, keysRes, myPlanRes] = await Promise.all([
+    const [walletRes, ledgerRes, keysRes, myPlanRes, prefsRes] = await Promise.all([
       fetch(`${API_URL}/api/credits/wallet`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${API_URL}/api/credits/ledger`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${API_URL}/api/account/api-keys`, { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(`${API_URL}/api/plans/me`, { headers: { Authorization: `Bearer ${token}` } })
+      fetch(`${API_URL}/api/plans/me`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${API_URL}/api/account/model-preferences`, { headers: { Authorization: `Bearer ${token}` } })
     ]);
 
     if (walletRes.ok) setWallet((await walletRes.json()) as CreditWallet);
     if (ledgerRes.ok) setLedger(((await ledgerRes.json()) as CreditLedger).entries);
     if (keysRes.ok) setApiKeys(((await keysRes.json()) as ApiKeyList).keys);
     if (myPlanRes.ok) setMyPlan((await myPlanRes.json()) as MyPlan);
+    if (prefsRes.ok) {
+      const prefsData = (await prefsRes.json()) as ModelPreferences;
+      setModelPrefs({
+        openrouter_model: prefsData.openrouter_model || "",
+        fal_image_model: prefsData.fal_image_model || "",
+        fal_edit_model: prefsData.fal_edit_model || "",
+        fal_upscale_model: prefsData.fal_upscale_model || "",
+        fal_train_model: prefsData.fal_train_model || "",
+      });
+    }
   }
 
   async function startCheckout(targetTier: string) {
@@ -343,6 +397,50 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveModelPreferences() {
+    if (!token || busySaveModelPrefs) return;
+
+    try {
+      setBusySaveModelPrefs(true);
+      setError("");
+      setSuccess("");
+
+      const payload: ModelPreferences = {
+        openrouter_model: modelPrefs.openrouter_model?.trim() || null,
+        fal_image_model: modelPrefs.fal_image_model?.trim() || null,
+        fal_edit_model: modelPrefs.fal_edit_model?.trim() || null,
+        fal_upscale_model: modelPrefs.fal_upscale_model?.trim() || null,
+        fal_train_model: modelPrefs.fal_train_model?.trim() || null,
+      };
+
+      const res = await fetch(`${API_URL}/api/account/model-preferences`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      const saved = (await res.json()) as ModelPreferences;
+      setModelPrefs({
+        openrouter_model: saved.openrouter_model || "",
+        fal_image_model: saved.fal_image_model || "",
+        fal_edit_model: saved.fal_edit_model || "",
+        fal_upscale_model: saved.fal_upscale_model || "",
+        fal_train_model: saved.fal_train_model || "",
+      });
+      await refreshCreditsAndKeys();
+      setSuccess("Model preferences saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot save model preferences");
+    } finally {
+      setBusySaveModelPrefs(false);
+    }
+  }
+
   if (status === "loading" || loading) {
     return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading settings...</main>;
   }
@@ -355,8 +453,11 @@ export default function SettingsPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/85">Vidra by Lexa AI</p>
             <h1 className="mt-1 text-2xl font-black">Settings & Billing</h1>
           </div>
-          <div className="flex gap-2">
-            <Link href="/dashboard" className="rounded-lg border border-cyan-300/40 px-3 py-1 text-xs font-bold text-cyan-100">
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center justify-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100"
+            >
               Dashboard
             </Link>
             <LogoutButton />
@@ -366,7 +467,8 @@ export default function SettingsPage() {
         {myPlan ? (
           <div className="mt-3 rounded-lg border border-cyan-300/25 bg-slate-950/55 p-3 text-sm text-slate-100">
             Tier: <span className="font-black">{myPlan.current_tier.toUpperCase()}</span> · Unlimited calendar generations/regenerations (fair-use),{" "}
-            {myPlan.personas_limit} persona(s), {myPlan.generation_days_per_run ?? myPlan.generation_days_limit} days per run
+            {myPlan.personas_limit >= 9999 ? "Unlimited" : myPlan.personas_limit} persona(s),{" "}
+            {myPlan.generation_days_per_run ?? myPlan.generation_days_limit} days per run
           </div>
         ) : null}
 
@@ -505,6 +607,112 @@ export default function SettingsPage() {
       </section>
 
       <section className="panel p-4">
+        <h2 className="text-lg font-black">Model Routing</h2>
+        <p className="mt-1 text-xs text-slate-300">
+          Pick which model to use per operation. If BYOK key is set, these run on your key. Otherwise Vidra uses platform keys and deducts credits with safety margin.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="subpanel p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-200">OpenRouter Profile Model</p>
+            <select
+              className="mt-2 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-sm"
+              value={modelPrefs.openrouter_model || ""}
+              onChange={(e) => setModelPrefs((prev) => ({ ...prev, openrouter_model: e.target.value }))}
+            >
+              {modelCatalog.openrouter.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-[11px] text-slate-300">Used for persona/profile LLM generation on PRO/MAX.</p>
+          </label>
+
+          <label className="subpanel p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-200">FAL Image Model</p>
+            <select
+              className="mt-2 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-sm"
+              value={modelPrefs.fal_image_model || ""}
+              onChange={(e) => setModelPrefs((prev) => ({ ...prev, fal_image_model: e.target.value }))}
+            >
+              {modelCatalog.fal
+                .filter((model) => model.operation === "generate")
+                .map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label} · {model.credits_hint}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label className="subpanel p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-200">FAL Edit Model</p>
+            <select
+              className="mt-2 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-sm"
+              value={modelPrefs.fal_edit_model || ""}
+              onChange={(e) => setModelPrefs((prev) => ({ ...prev, fal_edit_model: e.target.value }))}
+            >
+              {modelCatalog.fal
+                .filter((model) => model.operation === "edit")
+                .map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label} · {model.credits_hint}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label className="subpanel p-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-200">FAL Upscale Model</p>
+            <select
+              className="mt-2 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-sm"
+              value={modelPrefs.fal_upscale_model || ""}
+              onChange={(e) => setModelPrefs((prev) => ({ ...prev, fal_upscale_model: e.target.value }))}
+            >
+              {modelCatalog.fal
+                .filter((model) => model.operation === "upscale")
+                .map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label} · {model.credits_hint}
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label className="subpanel p-3 sm:col-span-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-200">FAL LoRA Training Model</p>
+            <select
+              className="mt-2 w-full rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 text-sm"
+              value={modelPrefs.fal_train_model || ""}
+              onChange={(e) => setModelPrefs((prev) => ({ ...prev, fal_train_model: e.target.value }))}
+            >
+              {modelCatalog.fal
+                .filter((model) => model.operation === "train")
+                .map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label} · {model.credits_hint}
+                  </option>
+                ))}
+            </select>
+            <p className="mt-2 text-[11px] text-slate-300">
+              Attach your trained LoRA in Persona Workspace. Training jobs can be added next without schema changes.
+            </p>
+          </label>
+        </div>
+
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={saveModelPreferences}
+            disabled={busySaveModelPrefs}
+            className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+          >
+            {busySaveModelPrefs ? "Saving..." : "Save Model Routing"}
+          </button>
+        </div>
+      </section>
+
+      <section className="panel p-4">
         <h2 className="text-lg font-black">Recent Credit Ledger</h2>
         {ledger.length === 0 ? (
           <p className="mt-2 text-sm text-slate-300">No credit operations yet.</p>
@@ -534,15 +742,6 @@ export default function SettingsPage() {
             </table>
           </div>
         )}
-      </section>
-
-      <section className="panel p-4 text-sm">
-        <h2 className="text-lg font-black">Legal & Consent</h2>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Link href="/legal/terms" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">Terms</Link>
-          <Link href="/legal/privacy" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">Privacy</Link>
-          <Link href="/legal/cookies" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">Cookies</Link>
-        </div>
       </section>
 
       {success ? <p className="rounded-lg border border-lime-300/40 bg-lime-500/10 p-3 text-sm text-lime-100">{success}</p> : null}

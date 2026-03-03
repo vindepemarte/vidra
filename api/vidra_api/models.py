@@ -219,6 +219,42 @@ class ApiKeyStore(Base):
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
 
 
+class UserModelPreference(Base):
+    __tablename__ = "user_model_preferences"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_user_model_preferences_user"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    openrouter_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fal_image_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fal_edit_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fal_upscale_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fal_train_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
+class PersonaLora(Base):
+    __tablename__ = "persona_loras"
+    __table_args__ = (
+        Index("ix_persona_loras_persona_created", "persona_id", "created_at"),
+        UniqueConstraint("user_id", "persona_id", "name", name="uq_persona_lora_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    persona_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("personas.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    provider: Mapped[str] = mapped_column(String(64), default="fal")
+    external_lora_id: Mapped[str] = mapped_column(String(512))
+    trigger_word: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="ready")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow, index=True)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
 class ConsentRecord(Base):
     __tablename__ = "consent_records"
 

@@ -14,6 +14,7 @@ from vidra_api.plans import (
     upgrade_target_for_tier,
 )
 from vidra_api.schemas import MyPlanOut, PlanCatalogOut
+from vidra_api.services.model_preferences import resolve_openrouter_model
 from vidra_api.services.wallet import ensure_wallet
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +34,7 @@ async def get_my_plan(
     tier = normalize_tier(user.tier)
     openrouter_enabled = bool(settings.openrouter_api_key)
 
-    openrouter_model = settings.openrouter_model if tier in {"pro", "max"} and openrouter_enabled else None
+    openrouter_model = await resolve_openrouter_model(db, user.id) if tier in {"pro", "max"} and openrouter_enabled else None
 
     wallet = await ensure_wallet(db, user.id, tier=tier)
     await db.commit()

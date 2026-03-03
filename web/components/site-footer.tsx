@@ -12,6 +12,9 @@ export function SiteFooter() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Link href="/blog" className="text-cyan-100 hover:underline">
+            Blog
+          </Link>
           <Link href="/legal/terms" className="text-cyan-100 hover:underline">
             Terms
           </Link>

@@ -17,11 +17,11 @@ load_dotenv()
 class LLM:
     """Wrapper around OpenRouter API using the OpenAI-compatible interface."""
 
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY not set in .env")
-        self.model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-20250514")
+        self.model = model or os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-20250514")
         timeout_seconds = float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "180"))
         max_retries = int(os.getenv("OPENROUTER_MAX_RETRIES", "3"))
         self.client = OpenAI(

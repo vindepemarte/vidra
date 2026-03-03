@@ -121,6 +121,26 @@ type MyPlan = {
   included_credits?: number;
 };
 
+type ProviderModelOption = {
+  id: string;
+  label: string;
+  operation: string;
+  credits_hint: string;
+};
+
+type ProviderModelCatalog = {
+  openrouter: ProviderModelOption[];
+  fal: ProviderModelOption[];
+};
+
+type ModelPreferences = {
+  openrouter_model?: string | null;
+  fal_image_model?: string | null;
+  fal_edit_model?: string | null;
+  fal_upscale_model?: string | null;
+  fal_train_model?: string | null;
+};
+
 type MediaJob = {
   id: string;
   user_id: string;
@@ -142,6 +162,23 @@ type MediaJob = {
 
 type MediaList = {
   jobs: MediaJob[];
+};
+
+type PersonaLora = {
+  id: string;
+  persona_id: string;
+  name: string;
+  provider: string;
+  external_lora_id: string;
+  trigger_word?: string | null;
+  status: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type PersonaLoraList = {
+  loras: PersonaLora[];
 };
 
 type PersonaTab = "overview" | "narrative" | "style" | "world" | "calendar" | "media";
@@ -208,6 +245,20 @@ function profileStatusTone(status?: string): string {
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
+}
+
+function formatDuration(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const seconds = safe % 60;
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  }
+  return `${seconds}s`;
 }
 
 function toItemCards(value: unknown): ItemCard[] {
@@ -296,12 +347,31 @@ export default function PersonaPage() {
   const [activeTab, setActiveTab] = useState<PersonaTab>("overview");
   const [selectedMonthKey, setSelectedMonthKey] = useState("");
   const [loadedMonth, setLoadedMonth] = useState<CalendarMonth | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ProviderModelCatalog>({ openrouter: [], fal: [] });
+  const [modelPrefs, setModelPrefs] = useState<ModelPreferences>({
+    openrouter_model: "",
+    fal_image_model: "",
+    fal_edit_model: "",
+    fal_upscale_model: "",
+    fal_train_model: "",
+  });
+  const [personaLoras, setPersonaLoras] = useState<PersonaLora[]>([]);
 
   const [mediaJobs, setMediaJobs] = useState<MediaJob[]>([]);
   const [selectedPostId, setSelectedPostId] = useState("");
   const [selectedSlidePrompt, setSelectedSlidePrompt] = useState("");
   const [selectedSourceMediaId, setSelectedSourceMediaId] = useState("");
-  const [mediaMode, setMediaMode] = useState<"image" | "edit">("image");
+  const [mediaMode, setMediaMode] = useState<"image" | "edit" | "upscale">("image");
+  const [selectedMediaModel, setSelectedMediaModel] = useState("");
+  const [selectedLoraId, setSelectedLoraId] = useState("");
+  const [attachLoraName, setAttachLoraName] = useState("");
+  const [attachLoraExternalId, setAttachLoraExternalId] = useState("");
+  const [attachLoraTrigger, setAttachLoraTrigger] = useState("");
+  const [busyAttachLora, setBusyAttachLora] = useState(false);
+  const [mediaWidth, setMediaWidth] = useState(1024);
+  const [mediaHeight, setMediaHeight] = useState(1024);
+  const [mediaNumImages, setMediaNumImages] = useState(1);
+  const [upscaleFactor, setUpscaleFactor] = useState(2);
   const [genMonth, setGenMonth] = useState(new Date().getMonth() + 1);
   const [genYear, setGenYear] = useState(new Date().getFullYear());
 
@@ -345,6 +415,24 @@ export default function PersonaPage() {
   );
 
   const activeMonthLabel = loadedMonth ? `${loadedMonth.year}-${String(loadedMonth.month).padStart(2, "0")}` : "none";
+  const falModelsByOperation = useMemo(() => {
+    const rows = modelCatalog.fal || [];
+    return {
+      image: rows.filter((item) => item.operation === "generate"),
+      edit: rows.filter((item) => item.operation === "edit"),
+      upscale: rows.filter((item) => item.operation === "upscale"),
+      train: rows.filter((item) => item.operation === "train"),
+    };
+  }, [modelCatalog.fal]);
+  const selectedModelHint = useMemo(() => {
+    const opRows =
+      mediaMode === "image"
+        ? falModelsByOperation.image
+        : mediaMode === "edit"
+          ? falModelsByOperation.edit
+          : falModelsByOperation.upscale;
+    return opRows.find((row) => row.id === selectedMediaModel)?.credits_hint || null;
+  }, [falModelsByOperation.edit, falModelsByOperation.image, falModelsByOperation.upscale, mediaMode, selectedMediaModel]);
 
   useEffect(() => {
     if (!pollingProfile || !profileStatus?.generation_started_at) {
@@ -368,6 +456,18 @@ export default function PersonaPage() {
   }, [mediaMode]);
 
   useEffect(() => {
+    if (mediaMode === "image") {
+      setSelectedMediaModel(modelPrefs.fal_image_model || "");
+      return;
+    }
+    if (mediaMode === "edit") {
+      setSelectedMediaModel(modelPrefs.fal_edit_model || "");
+      return;
+    }
+    setSelectedMediaModel(modelPrefs.fal_upscale_model || "");
+  }, [mediaMode, modelPrefs.fal_edit_model, modelPrefs.fal_image_model, modelPrefs.fal_upscale_model]);
+
+  useEffect(() => {
     autoGenerationTriggeredRef.current = false;
   }, [personaId]);
 
@@ -379,6 +479,42 @@ export default function PersonaPage() {
     if (!res.ok) throw new Error(await extractErrorMessage(res));
     const payload = (await res.json()) as MediaList;
     setMediaJobs(payload.jobs || []);
+  }
+
+  async function loadPersonaLoras(): Promise<void> {
+    if (!token || !personaId) return;
+    const res = await fetch(`${API_URL}/api/media/lora/persona/${personaId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    const payload = (await res.json()) as PersonaLoraList;
+    const rows = payload.loras || [];
+    setPersonaLoras(rows);
+    const defaultLora = rows.find((item) => item.is_default);
+    if (defaultLora) {
+      setSelectedLoraId(defaultLora.id);
+    }
+  }
+
+  async function loadMediaConfig(): Promise<void> {
+    if (!token) return;
+    const [prefsRes, catalogRes] = await Promise.all([
+      fetch(`${API_URL}/api/account/model-preferences`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${API_URL}/api/account/provider-models`, { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
+    if (!prefsRes.ok) throw new Error(await extractErrorMessage(prefsRes));
+    if (!catalogRes.ok) throw new Error(await extractErrorMessage(catalogRes));
+
+    const prefs = (await prefsRes.json()) as ModelPreferences;
+    const catalog = (await catalogRes.json()) as ProviderModelCatalog;
+    setModelPrefs({
+      openrouter_model: prefs.openrouter_model || "",
+      fal_image_model: prefs.fal_image_model || "",
+      fal_edit_model: prefs.fal_edit_model || "",
+      fal_upscale_model: prefs.fal_upscale_model || "",
+      fal_train_model: prefs.fal_train_model || "",
+    });
+    setModelCatalog(catalog);
   }
 
   async function loadProfileStatus(): Promise<PersonaProfileStatus | null> {
@@ -435,7 +571,7 @@ export default function PersonaPage() {
       setMyPlan(planPayload);
       setProfileStatus(detailPayload.profile_status ?? null);
 
-      await loadMediaJobs();
+      await Promise.all([loadMediaJobs(), loadPersonaLoras(), loadMediaConfig()]);
 
       if (autoLoadLatest && detailPayload.calendars[0]) {
         const latest = detailPayload.calendars[0];
@@ -555,13 +691,13 @@ export default function PersonaPage() {
       setError("Select a calendar post first.");
       return;
     }
-    if (!selectedSlidePrompt.trim()) {
+    if (mediaMode !== "upscale" && !selectedSlidePrompt.trim()) {
       setError("Prompt is empty.");
       return;
     }
 
-    if (mediaMode === "edit" && !selectedSourceMediaId) {
-      setError("Select a source image for edit mode.");
+    if ((mediaMode === "edit" || mediaMode === "upscale") && !selectedSourceMediaId) {
+      setError("Select a source image first.");
       return;
     }
 
@@ -570,14 +706,34 @@ export default function PersonaPage() {
       setError("");
       setSuccess("");
 
-      const endpoint = mediaMode === "image" ? "/api/media/generate-image" : "/api/media/edit-image";
+      const endpoint =
+        mediaMode === "image"
+          ? "/api/media/generate-image"
+          : mediaMode === "edit"
+            ? "/api/media/edit-image"
+            : "/api/media/upscale-image";
       const body: Record<string, unknown> = {
         persona_id: personaId,
-        post_id: selectedPostId,
-        prompt: selectedSlidePrompt
+        post_id: selectedPostId || null
       };
-      if (mediaMode === "edit") {
+      if (selectedMediaModel) {
+        body.model = selectedMediaModel;
+      }
+
+      if (mediaMode === "image") {
+        body.prompt = selectedSlidePrompt;
+        body.width = mediaWidth;
+        body.height = mediaHeight;
+        body.num_images = mediaNumImages;
+        if (selectedLoraId) {
+          body.persona_lora_id = selectedLoraId;
+        }
+      } else if (mediaMode === "edit") {
+        body.prompt = selectedSlidePrompt;
         body.source_media_id = selectedSourceMediaId;
+      } else {
+        body.source_media_id = selectedSourceMediaId;
+        body.upscale_factor = upscaleFactor;
       }
 
       const res = await fetch(`${API_URL}${endpoint}`, {
@@ -592,19 +748,62 @@ export default function PersonaPage() {
       if (!res.ok) throw new Error(await extractErrorMessage(res));
 
       const job = (await res.json()) as MediaJob;
-      await trackEvent("media_generated", { mode: mediaMode, provider: job.provider }, token);
+      await trackEvent("media_generated", { mode: mediaMode, provider: job.provider, model: job.model }, token);
 
       setSuccess(`Media job queued (${job.mode.toUpperCase()}). Status will update below.`);
-      await loadMediaJobs();
+      await Promise.all([loadMediaJobs(), loadPersonaLoras()]);
       await loadPersonaDetail(false);
 
-      if (job.output_url) {
+      if (job.output_url && mediaMode !== "upscale") {
         setSelectedSourceMediaId(job.id);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Media generation failed");
     } finally {
       setBusyMedia(false);
+    }
+  }
+
+  async function attachPersonaLora(): Promise<void> {
+    if (!token || !personaId || busyAttachLora) return;
+    const name = attachLoraName.trim();
+    const external = attachLoraExternalId.trim();
+    const trigger = attachLoraTrigger.trim();
+    if (!name || !external) {
+      setError("LoRA name and external LoRA path/id are required.");
+      return;
+    }
+
+    try {
+      setBusyAttachLora(true);
+      setError("");
+      setSuccess("");
+
+      const res = await fetch(`${API_URL}/api/media/lora/attach`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          persona_id: personaId,
+          name,
+          external_lora_id: external,
+          trigger_word: trigger || null,
+          set_default: true,
+        })
+      });
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+
+      setAttachLoraName("");
+      setAttachLoraExternalId("");
+      setAttachLoraTrigger("");
+      await loadPersonaLoras();
+      setSuccess("LoRA attached and set as default for this persona.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot attach LoRA");
+    } finally {
+      setBusyAttachLora(false);
     }
   }
 
@@ -669,6 +868,7 @@ export default function PersonaPage() {
   useEffect(() => {
     if (!token || !personaId || !profileStatus) return;
     if (busyRegenerate !== null) return;
+    if (pollingProfile) return;
     if (profileStatus.generation_status === "ready") {
       autoGenerationTriggeredRef.current = false;
       return;
@@ -688,7 +888,7 @@ export default function PersonaPage() {
       autoGenerationTriggeredRef.current = true;
       void startProfileGeneration("auto", true);
     }
-  }, [token, personaId, profileStatus?.generation_status, busyRegenerate]);
+  }, [token, personaId, profileStatus?.generation_status, busyRegenerate, pollingProfile]);
 
   if (status === "loading" || loading) {
     return <main className="mx-auto min-h-screen w-full max-w-6xl px-4 py-6">Loading persona workspace...</main>;
@@ -703,6 +903,11 @@ export default function PersonaPage() {
   }
 
   const canUseOperationalTabs = isProfileReady;
+  const isBuildingProfile =
+    profileStatus?.generation_status === "queued" || profileStatus?.generation_status === "generating";
+  const displayedElapsedSeconds = isBuildingProfile
+    ? Math.max(statusElapsedSec, profileStatus?.elapsed_seconds ?? 0)
+    : profileStatus?.elapsed_seconds ?? 0;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-7">
@@ -783,8 +988,8 @@ export default function PersonaPage() {
             <p className="subpanel px-3 py-2">Effective mode: {profileStatus?.generation_effective_mode?.toUpperCase() || "PENDING"}</p>
             <p className="subpanel px-3 py-2">Model: {profileStatus?.generation_model_used || "Pending"}</p>
             <p className="subpanel px-3 py-2">
-              Elapsed: {Math.max(statusElapsedSec, profileStatus?.elapsed_seconds ?? 0)}s
-              {typeof profileStatus?.eta_seconds === "number" ? ` · ETA ${profileStatus.eta_seconds}s` : ""}
+              Elapsed: {formatDuration(displayedElapsedSeconds)}
+              {typeof profileStatus?.eta_seconds === "number" ? ` · ETA ${formatDuration(profileStatus.eta_seconds)}` : ""}
             </p>
           </div>
 
@@ -1274,13 +1479,6 @@ export default function PersonaPage() {
                   </div>
                 ) : null}
 
-                <textarea
-                  className="min-h-36 w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs text-slate-100"
-                  value={selectedSlidePrompt}
-                  onChange={(e) => setSelectedSlidePrompt(e.target.value)}
-                  placeholder="Prompt for image generation"
-                />
-
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -1296,12 +1494,100 @@ export default function PersonaPage() {
                   >
                     Edit Existing Image
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setMediaMode("upscale")}
+                    className={`pill-btn ${mediaMode === "upscale" ? "pill-btn-active" : ""}`}
+                  >
+                    Upscale
+                  </button>
                   <button type="button" onClick={() => void copyPrompt(selectedSlidePrompt)} className="copy-btn">
                     Copy Prompt
                   </button>
                 </div>
 
-                {mediaMode === "edit" ? (
+                <select
+                  className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
+                  value={selectedMediaModel}
+                  onChange={(e) => setSelectedMediaModel(e.target.value)}
+                >
+                  {(
+                    mediaMode === "image"
+                      ? falModelsByOperation.image
+                      : mediaMode === "edit"
+                        ? falModelsByOperation.edit
+                        : falModelsByOperation.upscale
+                  ).length === 0 ? <option value="">No model available</option> : null}
+                  {(mediaMode === "image" ? falModelsByOperation.image : mediaMode === "edit" ? falModelsByOperation.edit : falModelsByOperation.upscale).map(
+                    (model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label} · {model.credits_hint}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                {selectedModelHint ? <p className="text-[11px] text-cyan-100">Estimated billing profile: {selectedModelHint}</p> : null}
+
+                {mediaMode !== "upscale" ? (
+                  <textarea
+                    className="min-h-36 w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs text-slate-100"
+                    value={selectedSlidePrompt}
+                    onChange={(e) => setSelectedSlidePrompt(e.target.value)}
+                    placeholder="Prompt for image generation"
+                  />
+                ) : null}
+
+                {mediaMode === "image" ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="number"
+                      min={512}
+                      max={2048}
+                      step={64}
+                      className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                      value={mediaWidth}
+                      onChange={(e) => setMediaWidth(Math.max(512, Math.min(2048, Number(e.target.value) || 1024)))}
+                      placeholder="Width"
+                    />
+                    <input
+                      type="number"
+                      min={512}
+                      max={2048}
+                      step={64}
+                      className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                      value={mediaHeight}
+                      onChange={(e) => setMediaHeight(Math.max(512, Math.min(2048, Number(e.target.value) || 1024)))}
+                      placeholder="Height"
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={4}
+                      className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                      value={mediaNumImages}
+                      onChange={(e) => setMediaNumImages(Math.max(1, Math.min(4, Number(e.target.value) || 1)))}
+                      placeholder="Images"
+                    />
+                  </div>
+                ) : null}
+
+                {mediaMode === "upscale" ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <p className="subpanel px-3 py-2 text-xs text-slate-200">Upscale source image by 2x-4x. Cost is credit-based.</p>
+                    <input
+                      type="number"
+                      min={2}
+                      max={4}
+                      className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                      value={upscaleFactor}
+                      onChange={(e) => setUpscaleFactor(Math.max(2, Math.min(4, Number(e.target.value) || 2)))}
+                      placeholder="Factor"
+                    />
+                  </div>
+                ) : null}
+
+                {(mediaMode === "edit" || mediaMode === "upscale") ? (
                   <select
                     className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
                     value={selectedSourceMediaId}
@@ -1316,13 +1602,68 @@ export default function PersonaPage() {
                   </select>
                 ) : null}
 
+                {mediaMode === "image" ? (
+                  <div className="space-y-2 rounded-lg border border-cyan-300/25 bg-slate-950/45 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-cyan-100">Persona LoRA</p>
+                    <select
+                      className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                      value={selectedLoraId}
+                      onChange={(e) => setSelectedLoraId(e.target.value)}
+                    >
+                      <option value="">No LoRA (base model)</option>
+                      {personaLoras.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.name} {row.is_default ? "· default" : ""} {row.trigger_word ? `· trigger: ${row.trigger_word}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <input
+                        type="text"
+                        value={attachLoraName}
+                        onChange={(e) => setAttachLoraName(e.target.value)}
+                        className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                        placeholder="LoRA name"
+                      />
+                      <input
+                        type="text"
+                        value={attachLoraExternalId}
+                        onChange={(e) => setAttachLoraExternalId(e.target.value)}
+                        className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                        placeholder="fal://... or model id"
+                      />
+                      <input
+                        type="text"
+                        value={attachLoraTrigger}
+                        onChange={(e) => setAttachLoraTrigger(e.target.value)}
+                        className="rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2 text-xs"
+                        placeholder="trigger word (optional)"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void attachPersonaLora()}
+                      disabled={busyAttachLora}
+                      className="copy-btn px-3 py-2 text-xs disabled:opacity-50"
+                    >
+                      {busyAttachLora ? "Attaching..." : "Attach / Set Default LoRA"}
+                    </button>
+                  </div>
+                ) : null}
+
                 <button
                   type="button"
                   onClick={generateMedia}
                   disabled={busyMedia || !loadedMonth || !isProfileReady}
                   className="w-full rounded-lg bg-sky-400 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
                 >
-                  {busyMedia ? "Processing..." : mediaMode === "image" ? "Generate Image" : "Generate Edit"}
+                  {busyMedia
+                    ? "Processing..."
+                    : mediaMode === "image"
+                      ? "Generate Image"
+                      : mediaMode === "edit"
+                        ? "Generate Edit"
+                        : "Upscale Image"}
                 </button>
               </div>
             </article>
@@ -1344,9 +1685,37 @@ export default function PersonaPage() {
                       <p className="mt-1 text-slate-300">{new Date(job.created_at).toLocaleString()}</p>
                       <p className="mt-1 line-clamp-3 text-slate-100">{job.prompt}</p>
                       {job.output_url ? (
-                        <a href={job.output_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sky-200 underline">
-                          Open Output
-                        </a>
+                        <div className="mt-2 overflow-hidden rounded-lg border border-slate-300/20">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={job.output_url} alt={`Media output ${job.id}`} className="h-40 w-full object-cover" />
+                        </div>
+                      ) : null}
+                      {job.output_url ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <a href={job.output_url} target="_blank" rel="noreferrer" className="text-sky-200 underline">
+                            Open Output
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSourceMediaId(job.id);
+                              setMediaMode("edit");
+                            }}
+                            className="copy-btn px-2 py-1 text-[11px]"
+                          >
+                            Use for Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSourceMediaId(job.id);
+                              setMediaMode("upscale");
+                            }}
+                            className="copy-btn px-2 py-1 text-[11px]"
+                          >
+                            Use for Upscale
+                          </button>
+                        </div>
                       ) : null}
                       {job.error_message ? <p className="mt-1 text-rose-200">{job.error_message}</p> : null}
                     </div>

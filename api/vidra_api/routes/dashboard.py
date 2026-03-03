@@ -13,6 +13,7 @@ from vidra_api.plans import (
     personas_limit_for_tier,
 )
 from vidra_api.schemas import DashboardOverviewOut
+from vidra_api.services.model_preferences import resolve_openrouter_model
 from vidra_api.services.wallet import ensure_wallet
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -28,12 +29,12 @@ def _value_snapshot_for_tier(tier: str) -> list[str]:
     if tier == "pro":
         return [
             "Unlimited calendar generations/regenerations with fair-use protection.",
-            "3 personas with 30-day generation window per run.",
+            "10 personas with 30-day generation window per run.",
             "500 monthly credits and OpenRouter-enhanced strategy.",
         ]
     return [
         "Unlimited calendar generations/regenerations with fair-use protection.",
-        "10 personas with 30-day generation window per run.",
+        "Unlimited personas with 30-day generation window per run.",
         "2500 monthly credits for high-output media workflows.",
     ]
 
@@ -95,7 +96,7 @@ async def get_dashboard_overview(
     wallet = await ensure_wallet(db, user.id, tier=tier)
     await db.commit()
 
-    openrouter_model = settings.openrouter_model if tier in {"pro", "max"} and openrouter_enabled else None
+    openrouter_model = await resolve_openrouter_model(db, user.id) if tier in {"pro", "max"} and openrouter_enabled else None
 
     return DashboardOverviewOut(
         current_tier=tier,

@@ -109,6 +109,9 @@ export default async function HomePage() {
           <Link href="/dashboard" className="rounded-xl border border-cyan-300/40 px-5 py-2.5 text-sm font-black text-cyan-100 sm:text-base">
             Open Dashboard
           </Link>
+          <Link href="/blog" className="rounded-xl border border-lime-300/40 px-5 py-2.5 text-sm font-black text-lime-100 sm:text-base">
+            Read Blog
+          </Link>
         </div>
 
         <div className="mt-8 grid gap-3 sm:grid-cols-3">

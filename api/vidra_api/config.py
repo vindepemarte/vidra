@@ -38,10 +38,15 @@ class Settings(BaseSettings):
     profile_generation_timeout_seconds: int = 5400
     calendar_generation_timeout_seconds: int = 180
     fal_api_key: str | None = None
-    fal_image_model: str = "fal-ai/flux/schnell"
-    fal_edit_model: str = "fal-ai/flux-lora/image-edit"
+    fal_image_model: str = "fal-ai/flux-lora"
+    fal_edit_model: str = "fal-ai/nano-banana-pro/edit"
+    fal_upscale_model: str = "fal-ai/clarity-upscaler"
+    fal_train_model: str = "fal-ai/flux-lora-fast-training"
     fal_image_cost_credits: int = 20
     fal_edit_cost_credits: int = 12
+    media_credit_value_usd: float = 0.01
+    media_margin_multiplier: float = 1.35
+    media_safety_multiplier: float = 1.08
 
     stripe_price_topup_starter: str | None = None
     stripe_price_topup_growth: str | None = None

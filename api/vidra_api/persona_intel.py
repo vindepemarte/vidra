@@ -356,7 +356,7 @@ def build_offline_profile(persona: Persona) -> PersonaProfileBundle:
     )
 
 
-def build_llm_profile(persona: Persona) -> PersonaProfileBundle:
+def build_llm_profile(persona: Persona, model_override: str | None = None) -> PersonaProfileBundle:
     from life.ai.llm import LLM
     from life.ai.search import BraveSearch
     from life.generators.appearance import (
@@ -395,7 +395,7 @@ def build_llm_profile(persona: Persona) -> PersonaProfileBundle:
         idx = (current_month - 1 + i) % 12
         year_offset = (current_month - 1 + i) // 12
         months_window.append((month_names[idx], current_year + year_offset))
-    llm = LLM()
+    llm = LLM(model=model_override)
 
     # Backstory arc
     childhood = generate_childhood(llm, p)
