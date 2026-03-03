@@ -49,6 +49,21 @@ const vidraFlow = [
 export default function IdentitySystemPage() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-8 sm:px-8">
+      <nav className="flex items-center justify-end gap-2">
+        <Link
+          href="/"
+          className="inline-flex items-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
+        >
+          Home
+        </Link>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
+        >
+          Dashboard
+        </Link>
+      </nav>
+
       <section className="panel p-6 sm:p-10">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-100">
           <span>🧠</span>

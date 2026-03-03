@@ -17,6 +17,21 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-6 sm:px-8">
+      <nav className="flex items-center justify-end gap-2">
+        <Link
+          href="/"
+          className="inline-flex items-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
+        >
+          Home
+        </Link>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
+        >
+          Dashboard
+        </Link>
+      </nav>
+
       <article className="panel p-5 sm:p-7">
         <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Vidra by Lexa AI · Blog</p>
         <h1 className="mt-2 text-3xl font-black sm:text-5xl">{post.title}</h1>
