@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str | None = None
     openrouter_model: str = "anthropic/claude-sonnet-4-20250514"
-    profile_generation_timeout_seconds: int = 180
+    profile_generation_timeout_seconds: int = 5400
     calendar_generation_timeout_seconds: int = 180
     fal_api_key: str | None = None
     fal_image_model: str = "fal-ai/flux/schnell"

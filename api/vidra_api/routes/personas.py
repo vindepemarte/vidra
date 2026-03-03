@@ -104,8 +104,8 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
     mode_hint = (effective_mode or requested_mode or "offline").lower()
 
     if mode_hint == "llm":
-        # LLM persona build performs many sequential calls; keep expectation generous (20-30 min upper bound).
-        estimated_total_seconds = max(1800, settings.profile_generation_timeout_seconds)
+        # LLM persona build performs many sequential calls; keep expectation generous (1.5h default).
+        estimated_total_seconds = max(5400, settings.profile_generation_timeout_seconds)
     elif mode_hint == "offline":
         estimated_total_seconds = 20
     else:
@@ -201,8 +201,8 @@ def _profile_job_is_stale(profile: PersonaProfile) -> bool:
         started_at = _as_utc(profile.generation_started_at or profile.updated_at)
         if not started_at:
             return False
-        # Keep generous to avoid false negatives on long LLM profile builds (2h guard).
-        return (now - started_at).total_seconds() > 7200
+        # Keep generous to avoid false negatives on long LLM profile builds (4h guard).
+        return (now - started_at).total_seconds() > 14400
 
     if status_value == "queued":
         queued_since = _as_utc(profile.updated_at or profile.created_at)

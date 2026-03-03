@@ -311,7 +311,7 @@ export default function DashboardPage() {
     personaId: string,
     options?: { maxAttempts?: number; updateCreateFeedback?: boolean }
   ): Promise<PersonaProfileStatus | null> => {
-    const maxAttempts = options?.maxAttempts ?? 600;
+    const maxAttempts = options?.maxAttempts ?? 5400; // up to ~3h at 2s interval
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const statusPayload = await fetchProfileStatus(personaId);
       if (!statusPayload) return null;
@@ -505,7 +505,7 @@ export default function DashboardPage() {
       setForm({ ...form, name: "", handle: "" });
       await trackEvent("persona_created", { source: "dashboard" }, token);
 
-      const statusPayload = await pollProfileStatus(created.id, { updateCreateFeedback: true, maxAttempts: 900 });
+      const statusPayload = await pollProfileStatus(created.id, { updateCreateFeedback: true, maxAttempts: 5400 });
       if (statusPayload?.generation_status === "ready") {
         await fetchProfileStatus(created.id);
       } else if (!statusPayload) {
