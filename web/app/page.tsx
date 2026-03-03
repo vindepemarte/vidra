@@ -106,8 +106,11 @@ export default async function HomePage() {
           <Link href="/signup" className="rounded-xl bg-cyan-400 px-5 py-2.5 text-sm font-black text-slate-950 sm:text-base">
             Start FREE
           </Link>
-          <Link href="/dashboard" className="rounded-xl border border-cyan-300/40 px-5 py-2.5 text-sm font-black text-cyan-100 sm:text-base">
-            Open Dashboard
+          <Link href="/studio" className="rounded-xl border border-cyan-300/40 px-5 py-2.5 text-sm font-black text-cyan-100 sm:text-base">
+            Open Studio
+          </Link>
+          <Link href="/dashboard" className="rounded-xl border border-slate-300/35 px-5 py-2.5 text-sm font-black text-slate-100 sm:text-base">
+            Dashboard
           </Link>
           <Link href="/blog" className="rounded-xl border border-lime-300/40 px-5 py-2.5 text-sm font-black text-lime-100 sm:text-base">
             Read Blog

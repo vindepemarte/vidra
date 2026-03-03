@@ -1,4 +1,4 @@
-from . import account, auth, billing, calendar, consent, credits, dashboard, events, export, media, onboarding, personas, plans
+from . import account, auth, billing, calendar, consent, credits, dashboard, events, export, media, onboarding, personas, plans, studio
 
 __all__ = [
     "account",
@@ -14,4 +14,5 @@ __all__ = [
     "onboarding",
     "personas",
     "plans",
+    "studio",
 ]

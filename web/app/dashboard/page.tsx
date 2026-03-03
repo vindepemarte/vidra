@@ -700,6 +700,9 @@ export default function DashboardPage() {
             <div className="rounded-lg border border-lime-300/50 bg-lime-400/15 px-3 py-1 text-xs font-black text-lime-100">
               {prettyTier(currentTier)}
             </div>
+            <Link href="/studio" className="rounded-lg border border-cyan-300/40 px-3 py-1 text-xs font-bold text-cyan-100">
+              Studio
+            </Link>
             <Link href="/settings" className="rounded-lg border border-cyan-300/40 px-3 py-1 text-xs font-bold text-cyan-100">
               Settings
             </Link>

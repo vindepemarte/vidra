@@ -236,7 +236,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (completed) {
-      router.push("/dashboard");
+      router.push("/studio");
     }
   }, [completed, router]);
 
@@ -358,7 +358,7 @@ export default function OnboardingPage() {
       });
       if (!res.ok) throw new Error(await extractErrorMessage(res));
       await trackEvent("onboarding_step_completed", { step: 5, completed: true }, token);
-      router.push("/dashboard");
+      router.push("/studio");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot complete onboarding");
     } finally {
@@ -382,8 +382,8 @@ export default function OnboardingPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link href="/dashboard" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">
-              Skip to Dashboard
+            <Link href="/studio" className="rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100">
+              Skip to Studio
             </Link>
             <LogoutButton />
           </div>
@@ -576,7 +576,7 @@ export default function OnboardingPage() {
       <section className="panel p-4">
         <h2 className="text-lg font-black">5. Activate command center</h2>
         <p className="mt-1 text-xs text-slate-300">
-          Continue into dashboard with persona memory, saved calendars, billing, and media operations.
+          Continue into Studio with persona memory, saved calendars, billing, and media operations.
         </p>
         <button
           type="button"

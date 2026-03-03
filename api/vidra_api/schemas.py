@@ -380,6 +380,29 @@ class PersonaProfileGenerateRequest(BaseModel):
     mode: str = Field(pattern="^(offline|llm|auto)$", default="auto")
 
 
+class StudioChatMessage(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class StudioMessageRequest(BaseModel):
+    persona_id: UUID | None = None
+    message: str = Field(min_length=1, max_length=4000)
+    history: list[StudioChatMessage] = Field(default_factory=list)
+
+
+class StudioActionSuggestionOut(BaseModel):
+    action: str
+    label: str
+    payload: dict = Field(default_factory=dict)
+
+
+class StudioMessageOut(BaseModel):
+    reply: str
+    model_used: str | None = None
+    suggestions: list[StudioActionSuggestionOut] = Field(default_factory=list)
+
+
 class ConsentCookieRequest(BaseModel):
     session_id: str = Field(min_length=8, max_length=128)
     analytics: bool = False

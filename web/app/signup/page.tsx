@@ -28,7 +28,7 @@ export default function SignupPage() {
     }
 
     await signIn("credentials", { email, password, redirect: false });
-    router.push("/dashboard");
+    router.push("/studio");
   }
 
   return (

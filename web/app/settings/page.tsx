@@ -455,6 +455,12 @@ export default function SettingsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/studio"
+              className="inline-flex items-center justify-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100"
+            >
+              Studio
+            </Link>
+            <Link
               href="/dashboard"
               className="inline-flex items-center justify-center rounded-lg border border-cyan-300/40 px-3 py-2 text-xs font-bold text-cyan-100"
             >
