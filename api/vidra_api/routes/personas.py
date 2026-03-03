@@ -118,6 +118,10 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
     if started_at:
         if status_value in {"ready", "failed"} and completed_at:
             elapsed_seconds = max(0, int((completed_at - started_at).total_seconds()))
+        elif status_value in {"ready", "failed"}:
+            # Backward compatibility for legacy rows where completed_at may be missing.
+            terminal_at = _as_utc(profile.updated_at) or _utc_now()
+            elapsed_seconds = max(0, int((terminal_at - started_at).total_seconds()))
         else:
             elapsed_seconds = max(0, int((_utc_now() - started_at).total_seconds()))
 

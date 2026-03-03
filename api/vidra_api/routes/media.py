@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
+import logging
 import math
 from uuid import UUID
 
@@ -29,6 +31,7 @@ from vidra_api.utils.limiter import enforce_rate_limit
 from vidra_api.utils.security import decrypt_secret
 
 router = APIRouter(prefix="/media", tags=["media"])
+logger = logging.getLogger(__name__)
 
 FAL_PRICE_USD_PER_UNIT: dict[str, float] = {
     "fal-ai/flux-lora-fast-training": 0.02,  # per step
@@ -36,6 +39,9 @@ FAL_PRICE_USD_PER_UNIT: dict[str, float] = {
     "fal-ai/clarity-upscaler": 0.03,  # per megapixel
     "fal-ai/nano-banana-pro/edit": 0.15,  # per image
 }
+
+FAL_POLL_INTERVAL_SECONDS = 2.0
+FAL_MAX_POLL_ATTEMPTS = 90
 
 
 def _serialize_job(job: MediaGeneration) -> MediaJobOut:
@@ -141,6 +147,13 @@ def _extract_output_url(payload: dict) -> str | None:
     return None
 
 
+def _extract_fal_status(payload: dict) -> str:
+    status = str(payload.get("status") or payload.get("state") or payload.get("phase") or "").strip().lower()
+    if not status and payload.get("error"):
+        return "failed"
+    return status
+
+
 def _estimate_megapixels(width: int | None, height: int | None, *, fallback_mp: float = 1.05) -> float:
     if width and height and width > 0 and height > 0:
         return max(0.25, (width * height) / 1_000_000.0)
@@ -211,12 +224,63 @@ async def _call_fal(model: str, api_key: str, payload: dict) -> dict:
     }
     async with httpx.AsyncClient(timeout=120) as client:
         res = await client.post(url, json=payload, headers=headers)
-    if res.status_code >= 400:
-        raise RuntimeError(f"fal.ai request failed ({res.status_code}): {res.text[:400]}")
-    try:
-        return res.json()
-    except Exception as exc:
-        raise RuntimeError("fal.ai response is not valid JSON") from exc
+        if res.status_code >= 400:
+            raise RuntimeError(f"fal.ai request failed ({res.status_code}): {res.text[:400]}")
+        try:
+            result = res.json()
+        except Exception as exc:
+            raise RuntimeError("fal.ai response is not valid JSON") from exc
+
+        if _extract_output_url(result):
+            return result
+
+        request_id = str(result.get("request_id") or result.get("id") or "").strip()
+        poll_url = str(result.get("response_url") or result.get("result_url") or "").strip()
+        status_url = str(result.get("status_url") or "").strip()
+        if not poll_url and request_id:
+            poll_url = f"https://fal.run/{model}/requests/{request_id}"
+
+        if not poll_url:
+            raise RuntimeError("fal.ai response missing output and polling URL")
+
+        for _ in range(FAL_MAX_POLL_ATTEMPTS):
+            poll_res = await client.get(poll_url, headers=headers)
+            if poll_res.status_code >= 400:
+                raise RuntimeError(f"fal.ai poll failed ({poll_res.status_code}): {poll_res.text[:400]}")
+            try:
+                poll_payload = poll_res.json()
+            except Exception:
+                poll_payload = {}
+
+            if _extract_output_url(poll_payload):
+                return poll_payload
+
+            status_value = _extract_fal_status(poll_payload)
+            if status_value in {"completed", "succeeded", "success", "done"} and _extract_output_url(poll_payload):
+                return poll_payload
+            if status_value in {"failed", "error", "canceled", "cancelled"}:
+                raise RuntimeError(
+                    str(poll_payload.get("error") or poll_payload.get("message") or "fal.ai generation failed")
+                )
+
+            if status_url:
+                status_res = await client.get(status_url, headers=headers)
+                if status_res.status_code < 400:
+                    try:
+                        status_payload = status_res.json()
+                    except Exception:
+                        status_payload = {}
+                    status_value = _extract_fal_status(status_payload)
+                    if status_value in {"failed", "error", "canceled", "cancelled"}:
+                        raise RuntimeError(
+                            str(status_payload.get("error") or status_payload.get("message") or "fal.ai generation failed")
+                        )
+                    if _extract_output_url(status_payload):
+                        return status_payload
+
+            await asyncio.sleep(FAL_POLL_INTERVAL_SECONDS)
+
+        raise RuntimeError("fal.ai generation timed out while waiting for output")
 
 
 async def _run_media_job(
@@ -249,28 +313,28 @@ async def _run_media_job(
             job.updated_at = dt.datetime.utcnow()
             job.error_message = None
 
-            if key_source == "platform" and cost > 0:
-                reason_map = {
-                    "image": "fal image generation",
-                    "edit": "fal image edit",
-                    "upscale": "fal image upscale",
-                }
-                await apply_wallet_delta(
-                    db,
-                    user_id=user_id,
-                    tier=user_tier,
-                    delta=-cost,
-                    reason=reason_map.get(operation, "fal media generation"),
-                    source_type="media_generation",
-                    source_id=str(job.id),
-                )
-
             await db.commit()
         except Exception as exc:  # noqa: BLE001
             job.status = "failed"
             job.error_message = str(exc)
             job.updated_at = dt.datetime.utcnow()
+            if key_source == "platform" and cost > 0:
+                refund_reason_map = {
+                    "image": "fal image generation refund",
+                    "edit": "fal image edit refund",
+                    "upscale": "fal image upscale refund",
+                }
+                await apply_wallet_delta(
+                    db,
+                    user_id=user_id,
+                    tier=user_tier,
+                    delta=cost,
+                    reason=refund_reason_map.get(operation, "fal media refund"),
+                    source_type="media_generation_refund",
+                    source_id=str(job.id),
+                )
             await db.commit()
+            logger.exception("Media job failed job_id=%s model=%s operation=%s", job_id, model, operation)
 
 
 async def _resolve_lora_for_persona(
@@ -376,6 +440,19 @@ async def generate_image(
         cost_credits=cost,
     )
     db.add(job)
+    await db.flush()
+
+    if key_source == "platform" and cost > 0:
+        await apply_wallet_delta(
+            db,
+            user_id=user.id,
+            tier=user.tier,
+            delta=-cost,
+            reason="fal image generation reserve",
+            source_type="media_generation_reserve",
+            source_id=str(job.id),
+        )
+
     await db.commit()
     await db.refresh(job)
 
@@ -422,6 +499,25 @@ async def edit_image(
     model = payload.model or models["edit"]
 
     fal_payload = {"prompt": payload.prompt, "image_url": source.output_url}
+
+    selected_lora = await _resolve_lora_for_persona(
+        db,
+        user_id=user.id,
+        persona_id=payload.persona_id,
+        persona_lora_id=payload.persona_lora_id,
+    )
+    if "lora" in model and selected_lora is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Selected edit model requires a persona LoRA. Attach a LoRA in Media settings or pick a non-LoRA edit model.",
+        )
+    if selected_lora and "lora" in model:
+        prompt = payload.prompt
+        if selected_lora.trigger_word and selected_lora.trigger_word not in prompt:
+            prompt = f"{selected_lora.trigger_word}, {prompt}"
+        fal_payload["prompt"] = prompt
+        fal_payload["loras"] = [{"path": selected_lora.external_lora_id, "scale": 1.0}]
+
     cost = _estimate_cost_credits(model=model, operation="edit", key_source=key_source, source_payload=source.input_payload)
 
     if key_source == "platform":
@@ -440,12 +536,25 @@ async def edit_image(
         model=model,
         mode="edit",
         status="pending",
-        prompt=payload.prompt,
+        prompt=str(fal_payload["prompt"]),
         reference_asset_id=source.id,
         input_payload=fal_payload,
         cost_credits=cost,
     )
     db.add(job)
+    await db.flush()
+
+    if key_source == "platform" and cost > 0:
+        await apply_wallet_delta(
+            db,
+            user_id=user.id,
+            tier=user.tier,
+            delta=-cost,
+            reason="fal image edit reserve",
+            source_type="media_generation_reserve",
+            source_id=str(job.id),
+        )
+
     await db.commit()
     await db.refresh(job)
 
@@ -525,6 +634,19 @@ async def upscale_image(
         cost_credits=cost,
     )
     db.add(job)
+    await db.flush()
+
+    if key_source == "platform" and cost > 0:
+        await apply_wallet_delta(
+            db,
+            user_id=user.id,
+            tier=user.tier,
+            delta=-cost,
+            reason="fal image upscale reserve",
+            source_type="media_generation_reserve",
+            source_id=str(job.id),
+        )
+
     await db.commit()
     await db.refresh(job)
 

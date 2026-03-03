@@ -299,6 +299,7 @@ class MediaEditImageRequest(BaseModel):
     prompt: str = Field(min_length=3)
     source_media_id: UUID
     model: str | None = None
+    persona_lora_id: UUID | None = None
 
 
 class MediaUpscaleImageRequest(BaseModel):

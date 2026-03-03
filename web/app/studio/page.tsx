@@ -325,6 +325,7 @@ export default function StudioPage() {
   const chatRef = useRef<HTMLDivElement | null>(null);
   const profileTimerRef = useRef<number | null>(null);
   const mediaTimerRef = useRef<number | null>(null);
+  const creditsRefreshRef = useRef<number>(0);
 
   const flattenedPosts = useMemo(() => flattenPosts(calendar), [calendar]);
   const selectedPost = useMemo(() => flattenedPosts.find((p) => p.id === selectedPostId) ?? null, [flattenedPosts, selectedPostId]);
@@ -332,6 +333,19 @@ export default function StudioPage() {
   const selectedMedia = useMemo(() => findCompletedImage(mediaJobs, selectedMediaId), [mediaJobs, selectedMediaId]);
   const activeProfileStatus = selectedPersonaId ? profileStatusByPersona[selectedPersonaId] : undefined;
   const profileReady = activeProfileStatus?.generation_status === "ready";
+
+  const refreshPlanSummary = async (force = false): Promise<void> => {
+    if (!token) return;
+    const nowMs = Date.now();
+    if (!force && nowMs - creditsRefreshRef.current < 1500) return;
+    creditsRefreshRef.current = nowMs;
+    try {
+      const payload = await authRequest<MyPlan>("/api/plans/me");
+      setPlan(payload);
+    } catch {
+      // Keep studio usable even if plan refresh fails transiently.
+    }
+  };
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -402,6 +416,9 @@ export default function StudioPage() {
 
     if (!keepPolling) return;
     const hasPending = payload.jobs.some((job) => job.status === "pending");
+    if (hasPending || payload.jobs.some((job) => job.status === "failed" || job.status === "completed")) {
+      await refreshPlanSummary(false);
+    }
     if (hasPending) {
       if (mediaTimerRef.current) window.clearTimeout(mediaTimerRef.current);
       mediaTimerRef.current = window.setTimeout(() => {
@@ -412,6 +429,7 @@ export default function StudioPage() {
 
   const refreshProfileStatus = async (personaId: string, keepPolling = true): Promise<PersonaProfileStatus | null> => {
     if (!personaId) return null;
+    const previousStatus = profileStatusByPersona[personaId]?.generation_status;
     const statusPayload = await authRequest<PersonaProfileStatus>(`/api/personas/${personaId}/profile/status`);
     setProfileStatusByPersona((prev) => ({ ...prev, [personaId]: statusPayload }));
 
@@ -425,6 +443,9 @@ export default function StudioPage() {
 
     if (statusPayload.is_terminal && statusPayload.generation_status === "ready") {
       trackEvent("studio_profile_ready", { persona_id: personaId });
+      if (previousStatus !== "ready") {
+        await Promise.all([loadPersonaDetail(personaId), loadCalendarMonths(personaId)]);
+      }
     }
 
     return statusPayload;
@@ -542,6 +563,7 @@ export default function StudioPage() {
       setChatInput("");
       appendMessage({ role: "assistant", text: `${payload.name} created. Profile generation started in background.` });
       trackEvent("studio_persona_created", { persona_id: payload.id });
+      await refreshPlanSummary(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create persona");
       appendMessage({ role: "system", text: err instanceof Error ? err.message : "Failed to create persona" });
@@ -623,6 +645,7 @@ export default function StudioPage() {
         }),
       });
       setMediaJobs((prev) => [payload, ...prev]);
+      await refreshPlanSummary(true);
       await refreshMediaJobs(selectedPersonaId, true);
       trackEvent("studio_media_generate_started", { persona_id: selectedPersonaId, post_id: selectedPostId, job_id: payload.id });
     } catch (err) {
@@ -649,6 +672,7 @@ export default function StudioPage() {
         }),
       });
       setMediaJobs((prev) => [payload, ...prev]);
+      await refreshPlanSummary(true);
       await refreshMediaJobs(selectedPersonaId, true);
       trackEvent("studio_media_edit_started", { persona_id: selectedPersonaId, source_media_id: selectedMedia.id, job_id: payload.id });
     } catch (err) {
@@ -675,6 +699,7 @@ export default function StudioPage() {
         }),
       });
       setMediaJobs((prev) => [payload, ...prev]);
+      await refreshPlanSummary(true);
       await refreshMediaJobs(selectedPersonaId, true);
       trackEvent("studio_media_upscale_started", { persona_id: selectedPersonaId, source_media_id: selectedMedia.id, job_id: payload.id });
     } catch (err) {
@@ -994,6 +1019,15 @@ export default function StudioPage() {
                 Open Preview
               </button>
             </div>
+            <div className="mt-3 rounded-lg border border-cyan-300/30 bg-cyan-500/10 p-2 text-xs text-cyan-100">
+              {!selectedPersonaId
+                ? "Next step: create a persona project."
+                : !profileReady
+                  ? "Next step: build profile. Calendar and media unlock automatically when profile is ready."
+                  : !calendar
+                    ? "Next step: generate current month calendar."
+                    : "Next step: pick a post and generate media. Credits are reserved immediately and refunded automatically on failure."}
+            </div>
           </div>
 
           <div ref={chatRef} className="mt-3 flex-1 space-y-2 overflow-y-auto rounded-xl border border-slate-300/20 bg-slate-950/35 p-3">
@@ -1216,9 +1250,20 @@ export default function StudioPage() {
                   <div className="mt-3 rounded-lg border border-slate-300/25 bg-slate-950/70 p-2">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={selectedMedia.output_url} alt="Selected media" className="h-auto w-full rounded-md object-cover" />
-                    <p className="mt-2 text-xs text-slate-300">
-                      {selectedMedia.mode.toUpperCase()} · {selectedMedia.model} · {selectedMedia.cost_credits} credits
-                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-300">
+                        {selectedMedia.mode.toUpperCase()} · {selectedMedia.model} · {selectedMedia.cost_credits} credits
+                      </p>
+                      <a
+                        href={selectedMedia.output_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        download
+                        className="rounded-md border border-cyan-300/40 px-2 py-1 text-[11px] font-semibold text-cyan-100"
+                      >
+                        Download
+                      </a>
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -1233,6 +1278,9 @@ export default function StudioPage() {
                         <span className={`rounded border px-1.5 py-0.5 text-[10px] ${statusTone(job.status)}`}>{job.status}</span>
                       </div>
                       <p className="mt-1 text-slate-300">{job.model}</p>
+                      {job.status === "failed" && job.error_message ? (
+                        <p className="mt-1 text-[11px] text-rose-200">{job.error_message}</p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
