@@ -389,7 +389,7 @@ export default function PersonaPage() {
     return payload;
   }
 
-  async function pollProfileUntilTerminal(maxAttempts = 180): Promise<PersonaProfileStatus | null> {
+  async function pollProfileUntilTerminal(maxAttempts = 1800): Promise<PersonaProfileStatus | null> {
     setPollingProfile(true);
     try {
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

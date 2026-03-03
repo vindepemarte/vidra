@@ -311,7 +311,7 @@ export default function DashboardPage() {
     personaId: string,
     options?: { maxAttempts?: number; updateCreateFeedback?: boolean }
   ): Promise<PersonaProfileStatus | null> => {
-    const maxAttempts = options?.maxAttempts ?? 120;
+    const maxAttempts = options?.maxAttempts ?? 600;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const statusPayload = await fetchProfileStatus(personaId);
       if (!statusPayload) return null;
@@ -505,9 +505,15 @@ export default function DashboardPage() {
       setForm({ ...form, name: "", handle: "" });
       await trackEvent("persona_created", { source: "dashboard" }, token);
 
-      const statusPayload = await pollProfileStatus(created.id, { updateCreateFeedback: true });
+      const statusPayload = await pollProfileStatus(created.id, { updateCreateFeedback: true, maxAttempts: 900 });
       if (statusPayload?.generation_status === "ready") {
         await fetchProfileStatus(created.id);
+      } else if (!statusPayload) {
+        setCreateFeedback({
+          personaId: created.id,
+          status: "generating",
+          message: "Profile is still generating. Open persona page for live progress."
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Persona creation failed");

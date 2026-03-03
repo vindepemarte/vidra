@@ -104,7 +104,8 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
     mode_hint = (effective_mode or requested_mode or "offline").lower()
 
     if mode_hint == "llm":
-        estimated_total_seconds = max(45, settings.profile_generation_timeout_seconds)
+        # LLM persona build performs many sequential calls; realistic duration is several minutes.
+        estimated_total_seconds = max(480, settings.profile_generation_timeout_seconds)
     elif mode_hint == "offline":
         estimated_total_seconds = 20
     else:
@@ -200,7 +201,8 @@ def _profile_job_is_stale(profile: PersonaProfile) -> bool:
         started_at = _as_utc(profile.generation_started_at or profile.updated_at)
         if not started_at:
             return False
-        return (now - started_at).total_seconds() > (settings.profile_generation_timeout_seconds + 45)
+        # Keep this generous to avoid false negatives on long LLM profile builds.
+        return (now - started_at).total_seconds() > 3600
 
     if status_value == "queued":
         queued_since = _as_utc(profile.updated_at or profile.created_at)
@@ -277,30 +279,32 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
                 await db.commit()
                 return
 
+        llm_error: Exception | None = None
+        bundle: PersonaProfileBundle
+        model_used: str
+        final_effective_mode = effective_mode
         try:
             if effective_mode == "llm":
-                bundle = await asyncio.wait_for(
-                    asyncio.to_thread(build_llm_profile, persona),
-                    timeout=settings.profile_generation_timeout_seconds,
-                )
+                # Do not apply a short global timeout here: per-call OpenRouter timeout is already enforced.
+                bundle = await asyncio.to_thread(build_llm_profile, persona)
                 model_used = settings.openrouter_model
             else:
                 bundle = build_offline_profile(persona)
                 model_used = "offline"
-        except asyncio.TimeoutError:
-            profile.generation_status = "failed"
-            profile.generation_error = "Profile generation timed out. Try again or use offline mode."
-            profile.generation_completed_at = _utc_now()
-            profile.updated_at = _utc_now()
-            await db.commit()
-            return
         except Exception as exc:  # noqa: BLE001
-            profile.generation_status = "failed"
-            profile.generation_error = f"Profile generation failed: {exc}"
-            profile.generation_completed_at = _utc_now()
-            profile.updated_at = _utc_now()
-            await db.commit()
-            return
+            llm_error = exc
+            # For AUTO mode, fallback to offline instead of failing persona creation/profile unlock.
+            if requested_mode == "auto" and effective_mode == "llm":
+                bundle = build_offline_profile(persona)
+                model_used = "offline"
+                final_effective_mode = "offline"
+            else:
+                profile.generation_status = "failed"
+                profile.generation_error = f"Profile generation failed: {exc}"
+                profile.generation_completed_at = _utc_now()
+                profile.updated_at = _utc_now()
+                await db.commit()
+                return
 
         await db.refresh(profile)
         if profile.generation_run_id != run_id:
@@ -309,9 +313,11 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         _apply_bundle(profile, bundle)
         profile.generation_status = "ready"
         profile.generation_requested_mode = requested_mode
-        profile.generation_effective_mode = effective_mode
+        profile.generation_effective_mode = final_effective_mode
         profile.generation_model_used = model_used
         profile.generation_error = None
+        if llm_error is not None and requested_mode == "auto" and effective_mode == "llm":
+            profile.generation_model_used = f"{model_used} (auto-fallback)"
         if profile.generation_started_at is None:
             profile.generation_started_at = _utc_now()
         profile.generation_completed_at = _utc_now()
