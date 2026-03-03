@@ -253,10 +253,19 @@ def _enrich_drafts_with_profile(drafts: list[DayDraft], profile: PersonaProfile 
             ugc_suffix = "UGC smartphone shot, half-face or over-shoulder framing, ambient light, slight grain, handheld realism, social-feed ready."
             trope = _pick_ugc_trope(day_index, post.post_number)
             story_arc = story_snippets[(day_index + post.post_number) % len(story_snippets)]
-            post.prompt = (
-                f"{blueprint}. {event_prefix}{post.prompt}. Story arc: {story_arc}. "
-                f"Outfit cue: {style}. {ugc_suffix} Reference: {trope}"
-            ).strip()
+
+            # Avoid duplicating the identity blueprint if the base prompt already carries it
+            identity_tag = blueprint if blueprint.lower() not in (post.prompt or "").lower() else ""
+
+            prompt_parts = [
+                identity_tag,
+                f"{event_prefix}{post.prompt}".strip(),
+                f"Story arc: {story_arc}.",
+                f"Outfit cue: {style}.",
+                f"{ugc_suffix} Reference: {trope}",
+            ]
+            post.prompt = " ".join(p for p in prompt_parts if p).strip()
+
             if event_hint:
                 post.caption = f"{post.caption} · Event: {event_hint}"
 
