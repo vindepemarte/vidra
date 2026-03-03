@@ -26,6 +26,14 @@ type PersonaProfileStatus = {
   generation_requested_mode?: string | null;
   generation_effective_mode?: string | null;
   generation_model_used?: string | null;
+  generation_step?: string | null;
+  progress_percent?: number;
+  elapsed_seconds?: number;
+  estimated_total_seconds?: number | null;
+  eta_seconds?: number | null;
+  can_retry?: boolean;
+  is_terminal?: boolean;
+  next_poll_seconds?: number;
   generation_error?: string | null;
   generation_started_at?: string | null;
   generation_completed_at?: string | null;
@@ -387,10 +395,10 @@ export default function PersonaPage() {
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const payload = await loadProfileStatus();
         if (!payload) return null;
-        if (payload.generation_status === "ready" || payload.generation_status === "failed") {
+        if (payload.is_terminal || payload.generation_status === "ready" || payload.generation_status === "failed") {
           return payload;
         }
-        await sleep(1500);
+        await sleep((payload.next_poll_seconds ?? 2) * 1000);
       }
       return null;
     } finally {
@@ -725,11 +733,25 @@ export default function PersonaPage() {
             Status: <span className="font-bold">{profileStatusLabel(profileStatus?.generation_status)}</span>
           </div>
 
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-900/70">
+            <div
+              className="h-full rounded-full bg-cyan-300 transition-all duration-500"
+              style={{ width: `${Math.max(3, Math.min(100, profileStatus?.progress_percent ?? 0))}%` }}
+            />
+          </div>
+
+          <p className="mt-2 text-xs text-slate-300">
+            {profileStatus?.generation_step || "Waiting to start"}
+          </p>
+
           <div className="mt-3 grid gap-2 text-xs text-slate-200 sm:grid-cols-2">
             <p className="subpanel px-3 py-2">Requested mode: {profileStatus?.generation_requested_mode?.toUpperCase() || "AUTO"}</p>
             <p className="subpanel px-3 py-2">Effective mode: {profileStatus?.generation_effective_mode?.toUpperCase() || "PENDING"}</p>
             <p className="subpanel px-3 py-2">Model: {profileStatus?.generation_model_used || "Pending"}</p>
-            <p className="subpanel px-3 py-2">Elapsed: {statusElapsedSec}s</p>
+            <p className="subpanel px-3 py-2">
+              Elapsed: {Math.max(statusElapsedSec, profileStatus?.elapsed_seconds ?? 0)}s
+              {typeof profileStatus?.eta_seconds === "number" ? ` · ETA ${profileStatus.eta_seconds}s` : ""}
+            </p>
           </div>
 
           {profileStatus?.generation_error ? (

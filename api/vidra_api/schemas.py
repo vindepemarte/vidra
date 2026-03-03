@@ -288,6 +288,14 @@ class PersonaProfileStatusOut(BaseModel):
     generation_requested_mode: str | None = None
     generation_effective_mode: str | None = None
     generation_model_used: str | None = None
+    generation_step: str | None = None
+    progress_percent: int = 0
+    elapsed_seconds: int = 0
+    estimated_total_seconds: int | None = None
+    eta_seconds: int | None = None
+    can_retry: bool = True
+    is_terminal: bool = False
+    next_poll_seconds: int = 2
     generation_error: str | None = None
     generation_started_at: datetime | None = None
     generation_completed_at: datetime | None = None

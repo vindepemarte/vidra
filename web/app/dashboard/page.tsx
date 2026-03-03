@@ -26,6 +26,14 @@ type PersonaProfileStatus = {
   generation_requested_mode?: string | null;
   generation_effective_mode?: string | null;
   generation_model_used?: string | null;
+  generation_step?: string | null;
+  progress_percent?: number;
+  elapsed_seconds?: number;
+  estimated_total_seconds?: number | null;
+  eta_seconds?: number | null;
+  can_retry?: boolean;
+  is_terminal?: boolean;
+  next_poll_seconds?: number;
   generation_error?: string | null;
   generation_started_at?: string | null;
   generation_completed_at?: string | null;
@@ -309,6 +317,10 @@ export default function DashboardPage() {
       if (!statusPayload) return null;
 
       if (options?.updateCreateFeedback) {
+        const progress = Math.max(0, Math.min(100, statusPayload.progress_percent ?? 0));
+        const elapsed = statusPayload.elapsed_seconds ?? 0;
+        const eta = statusPayload.eta_seconds;
+        const step = statusPayload.generation_step || "Preparing profile...";
         setCreateFeedback({
           personaId,
           status: statusPayload.generation_status,
@@ -317,7 +329,7 @@ export default function DashboardPage() {
               ? "Profile ready."
               : statusPayload.generation_status === "failed"
                 ? `Profile failed: ${statusPayload.generation_error || "unknown error"}`
-                : "Persona created. Preparing profile..."
+                : `Persona profile: ${step} (${progress}% · ${elapsed}s${typeof eta === "number" ? ` · ETA ${eta}s` : ""})`
         });
       }
 
@@ -325,7 +337,7 @@ export default function DashboardPage() {
         return statusPayload;
       }
 
-      await sleep(1500);
+      await sleep((statusPayload.next_poll_seconds ?? 2) * 1000);
     }
     return null;
   };
@@ -845,9 +857,17 @@ export default function DashboardPage() {
               {busyCreate ? "Creating..." : canCreatePersona ? "Create Persona" : "Persona Limit Reached"}
             </button>
             {createFeedback ? (
-              <p className="mt-3 rounded-lg border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
-                {createFeedback.message}
-              </p>
+              <div className="mt-3 rounded-lg border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+                <p>{createFeedback.message}</p>
+                {createFeedback.personaId && createFeedback.status !== "ready" && createFeedback.status !== "failed" ? (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-900/70">
+                    <div
+                      className="h-full rounded-full bg-cyan-300 transition-all duration-500"
+                      style={{ width: `${Math.max(4, personaProfileStates[createFeedback.personaId]?.progress_percent ?? 4)}%` }}
+                    />
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </article>
 
@@ -858,8 +878,13 @@ export default function DashboardPage() {
                 <p className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3 text-sm text-slate-300">No personas yet.</p>
               ) : (
                 personas.map((persona) => {
-                  const profileStatus = personaProfileStates[persona.id]?.generation_status;
+                  const statusPayload = personaProfileStates[persona.id];
+                  const profileStatus = statusPayload?.generation_status;
                   const statusText = profileStatusLabel(profileStatus);
+                  const progressText =
+                    profileStatus === "queued" || profileStatus === "generating"
+                      ? ` · ${Math.max(0, Math.min(100, statusPayload?.progress_percent ?? 0))}%`
+                      : "";
                   return (
                   <div
                     key={persona.id}
@@ -881,6 +906,7 @@ export default function DashboardPage() {
                       <p className="text-xs text-slate-300">@{persona.handle} · {persona.city} · {persona.niche}</p>
                       <p className="mt-1 text-[11px] text-cyan-100/85">
                         {persona.gender.toUpperCase()} · {persona.age}y · {statusText}
+                        {progressText}
                       </p>
                     </button>
                     <div className="mt-2 flex gap-2">

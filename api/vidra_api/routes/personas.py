@@ -68,7 +68,17 @@ def _apply_bundle(profile: PersonaProfile, bundle: PersonaProfileBundle) -> None
 
 def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileStatusOut:
     if profile is None:
-        return PersonaProfileStatusOut(generation_status="empty")
+        return PersonaProfileStatusOut(
+            generation_status="empty",
+            generation_step="Waiting to start",
+            progress_percent=0,
+            elapsed_seconds=0,
+            estimated_total_seconds=None,
+            eta_seconds=None,
+            can_retry=True,
+            is_terminal=False,
+            next_poll_seconds=2,
+        )
 
     has_profile_content = bool((profile.prompt_blueprint or "").strip() or (profile.bio or "").strip())
     status_value = (profile.generation_status or "").strip().lower()
@@ -79,11 +89,62 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
     if not effective_mode and status_value == "ready":
         effective_mode = "llm" if profile.generated_mode == "llm" else "offline"
 
+    requested_mode = (profile.generation_requested_mode or "").strip().lower() or None
+    mode_hint = (effective_mode or requested_mode or "offline").lower()
+
+    if mode_hint == "llm":
+        estimated_total_seconds = max(45, settings.profile_generation_timeout_seconds)
+    elif mode_hint == "offline":
+        estimated_total_seconds = 20
+    else:
+        estimated_total_seconds = max(45, settings.profile_generation_timeout_seconds)
+
+    elapsed_seconds = 0
+    if profile.generation_started_at:
+        elapsed_seconds = max(0, int((dt.datetime.utcnow() - profile.generation_started_at).total_seconds()))
+
+    if status_value == "empty":
+        progress_percent = 0
+        generation_step = "Waiting to start"
+    elif status_value == "queued":
+        progress_percent = 5
+        generation_step = "Queued in worker pipeline"
+    elif status_value == "generating":
+        progress_percent = 12 + int(min(1.0, elapsed_seconds / max(estimated_total_seconds, 1)) * 78)
+        progress_percent = max(12, min(progress_percent, 90))
+        if elapsed_seconds < 4:
+            generation_step = "Preparing persona context"
+        elif mode_hint == "llm":
+            generation_step = f"Generating with OpenRouter ({settings.openrouter_model})"
+        else:
+            generation_step = "Building offline persona intelligence"
+    elif status_value == "ready":
+        progress_percent = 100
+        generation_step = "Profile generation completed"
+    else:
+        progress_percent = 100
+        generation_step = "Profile generation failed"
+
+    eta_seconds = None
+    if status_value in {"queued", "generating"}:
+        eta_seconds = max(0, estimated_total_seconds - elapsed_seconds)
+
+    is_terminal = status_value in {"ready", "failed"}
+    can_retry = status_value in {"empty", "ready", "failed"}
+
     return PersonaProfileStatusOut(
         generation_status=status_value,
         generation_requested_mode=profile.generation_requested_mode,
         generation_effective_mode=effective_mode,
         generation_model_used=profile.generation_model_used,
+        generation_step=generation_step,
+        progress_percent=progress_percent,
+        elapsed_seconds=elapsed_seconds,
+        estimated_total_seconds=estimated_total_seconds,
+        eta_seconds=eta_seconds,
+        can_retry=can_retry,
+        is_terminal=is_terminal,
+        next_poll_seconds=0 if is_terminal else 2,
         generation_error=profile.generation_error,
         generation_started_at=profile.generation_started_at,
         generation_completed_at=profile.generation_completed_at,
