@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime as dt
 from dataclasses import dataclass
 from typing import Any
 
@@ -371,6 +372,29 @@ def build_llm_profile(persona: Persona) -> PersonaProfileBundle:
     from life.generators.world import generate_apartment, generate_devices
 
     p = _persona_dict(persona)
+    now = dt.datetime.now(dt.timezone.utc)
+    current_year = now.year
+    current_month = now.month
+    month_names = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ]
+    # Next 8 months window (wrapping to next year if needed)
+    months_window: list[tuple[str, int]] = []
+    for i in range(8):
+        idx = (current_month - 1 + i) % 12
+        year_offset = (current_month - 1 + i) // 12
+        months_window.append((month_names[idx], current_year + year_offset))
     llm = LLM()
 
     # Backstory arc
@@ -434,11 +458,15 @@ Return JSON list with keys: id, name, prompt_snippet.
 
     try:
         search = BraveSearch()
-        raw_events = search.discover_events(p["city"], "March", "2026") + search.discover_events(p["city"], "April", "2026")
-        results_text = "\n".join([f"- {r.get('title', '')}: {r.get('description', '')}" for r in raw_events[:20]])
+        raw_events: list[dict] = []
+        for month_name, year_val in months_window:
+            raw_events.extend(search.discover_events(p["city"], month_name, str(year_val)))
+        results_text = "\n".join([f"- {r.get('title', '')}: {r.get('description', '')}" for r in raw_events[:30]])
         events = llm.generate_list(
             f"""
 Extract realistic upcoming creator-relevant events from this data for {p['city']}.
+Time window: from {month_names[current_month-1]} {current_year} through {month_names[(current_month-1+7)%12]} {current_year + ((current_month-1+7)//12)}.
+Exclude any event dated before {current_year}.
 Return JSON list items with keys: name, type, date_range, location, description, content_opportunity, outfit_vibe.
 
 Search results:
@@ -448,8 +476,9 @@ Search results:
     except Exception:
         events = llm.generate_list(
             f"""
-Generate 12 realistic upcoming events in {p['city']} for a creator in {p['niche']}.
+Generate 12 realistic upcoming events in {p['city']} for a creator in {p['niche']}, between {month_names[current_month-1]} {current_year} and {month_names[current_month-1]} {current_year + 1}.
 Return JSON list items with keys: name, type, date_range, location, description, content_opportunity, outfit_vibe.
+Do NOT output any event with a year earlier than {current_year}.
 """
         )
 
