@@ -1,7 +1,6 @@
 import asyncio
 import datetime as dt
 import uuid
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -27,6 +26,18 @@ from vidra_api.schemas import (
 )
 
 router = APIRouter(prefix="/personas", tags=["personas"])
+
+
+def _utc_now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def _as_utc(value: dt.datetime | None) -> dt.datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=dt.timezone.utc)
+    return value.astimezone(dt.timezone.utc)
 
 
 def _auto_mode_for_tier(tier: str) -> str:
@@ -63,7 +74,7 @@ def _apply_bundle(profile: PersonaProfile, bundle: PersonaProfileBundle) -> None
     profile.world = bundle.world
     profile.carousel_rules = bundle.carousel_rules
     profile.generated_mode = bundle.generated_mode
-    profile.updated_at = datetime.utcnow()
+    profile.updated_at = _utc_now()
 
 
 def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileStatusOut:
@@ -100,8 +111,9 @@ def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileSta
         estimated_total_seconds = max(45, settings.profile_generation_timeout_seconds)
 
     elapsed_seconds = 0
-    if profile.generation_started_at:
-        elapsed_seconds = max(0, int((dt.datetime.utcnow() - profile.generation_started_at).total_seconds()))
+    started_at = _as_utc(profile.generation_started_at)
+    if started_at:
+        elapsed_seconds = max(0, int((_utc_now() - started_at).total_seconds()))
 
     if status_value == "empty":
         progress_percent = 0
@@ -177,21 +189,21 @@ def _mark_profile_queued(profile: PersonaProfile, *, requested_mode: str, run_id
     profile.generation_started_at = None
     profile.generation_completed_at = None
     profile.generation_run_id = run_id
-    profile.updated_at = datetime.utcnow()
+    profile.updated_at = _utc_now()
 
 
 def _profile_job_is_stale(profile: PersonaProfile) -> bool:
-    now = dt.datetime.utcnow()
+    now = _utc_now()
     status_value = (profile.generation_status or "").strip().lower()
 
     if status_value == "generating":
-        started_at = profile.generation_started_at or profile.updated_at
+        started_at = _as_utc(profile.generation_started_at or profile.updated_at)
         if not started_at:
             return False
         return (now - started_at).total_seconds() > (settings.profile_generation_timeout_seconds + 45)
 
     if status_value == "queued":
-        queued_since = profile.updated_at or profile.created_at
+        queued_since = _as_utc(profile.updated_at or profile.created_at)
         if not queued_since:
             return False
         return (now - queued_since).total_seconds() > 180
@@ -205,8 +217,8 @@ async def _recover_stale_profile_job(db: AsyncSession, profile: PersonaProfile) 
 
     profile.generation_status = "failed"
     profile.generation_error = "Profile generation stalled (deploy/restart/timeout). Retry now."
-    profile.generation_completed_at = dt.datetime.utcnow()
-    profile.updated_at = dt.datetime.utcnow()
+    profile.generation_completed_at = _utc_now()
+    profile.updated_at = _utc_now()
     await db.commit()
     await db.refresh(profile)
     return True
@@ -244,24 +256,24 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         profile.generation_effective_mode = effective_mode
         profile.generation_model_used = None
         profile.generation_error = None
-        profile.generation_started_at = dt.datetime.utcnow()
+        profile.generation_started_at = _utc_now()
         profile.generation_completed_at = None
-        profile.updated_at = dt.datetime.utcnow()
+        profile.updated_at = _utc_now()
         await db.commit()
 
         if effective_mode == "llm":
             if tier not in {"pro", "max"}:
                 profile.generation_status = "failed"
                 profile.generation_error = "LLM profile generation is available only for PRO/MAX tiers."
-                profile.generation_completed_at = dt.datetime.utcnow()
-                profile.updated_at = dt.datetime.utcnow()
+                profile.generation_completed_at = _utc_now()
+                profile.updated_at = _utc_now()
                 await db.commit()
                 return
             if not settings.openrouter_api_key:
                 profile.generation_status = "failed"
                 profile.generation_error = "OPENROUTER_API_KEY is not configured."
-                profile.generation_completed_at = dt.datetime.utcnow()
-                profile.updated_at = dt.datetime.utcnow()
+                profile.generation_completed_at = _utc_now()
+                profile.updated_at = _utc_now()
                 await db.commit()
                 return
 
@@ -278,15 +290,15 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         except asyncio.TimeoutError:
             profile.generation_status = "failed"
             profile.generation_error = "Profile generation timed out. Try again or use offline mode."
-            profile.generation_completed_at = dt.datetime.utcnow()
-            profile.updated_at = dt.datetime.utcnow()
+            profile.generation_completed_at = _utc_now()
+            profile.updated_at = _utc_now()
             await db.commit()
             return
         except Exception as exc:  # noqa: BLE001
             profile.generation_status = "failed"
             profile.generation_error = f"Profile generation failed: {exc}"
-            profile.generation_completed_at = dt.datetime.utcnow()
-            profile.updated_at = dt.datetime.utcnow()
+            profile.generation_completed_at = _utc_now()
+            profile.updated_at = _utc_now()
             await db.commit()
             return
 
@@ -301,9 +313,9 @@ async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, reques
         profile.generation_model_used = model_used
         profile.generation_error = None
         if profile.generation_started_at is None:
-            profile.generation_started_at = dt.datetime.utcnow()
-        profile.generation_completed_at = dt.datetime.utcnow()
-        profile.updated_at = dt.datetime.utcnow()
+            profile.generation_started_at = _utc_now()
+        profile.generation_completed_at = _utc_now()
+        profile.updated_at = _utc_now()
         await db.commit()
 
 
@@ -503,7 +515,7 @@ async def update_persona(
     for field, value in payload.model_dump().items():
         setattr(persona, field, value)
 
-    persona.updated_at = datetime.utcnow()
+    persona.updated_at = _utc_now()
     await db.commit()
     await db.refresh(persona)
     return persona
