@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,7 @@ class User(Base):
 
 class Persona(Base):
     __tablename__ = "personas"
+    __table_args__ = (Index("ix_personas_user_created", "user_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -35,6 +36,7 @@ class Persona(Base):
     city: Mapped[str] = mapped_column(String(255))
     niche: Mapped[str] = mapped_column(String(255))
     vibe: Mapped[str] = mapped_column(Text)
+    gender: Mapped[str] = mapped_column(String(16), default="female")
     template: Mapped[str] = mapped_column(String(64), default="fashion")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
@@ -110,7 +112,10 @@ class PostSlide(Base):
 
 class PersonaProfile(Base):
     __tablename__ = "persona_profiles"
-    __table_args__ = (UniqueConstraint("persona_id", name="uq_profile_persona"),)
+    __table_args__ = (
+        UniqueConstraint("persona_id", name="uq_profile_persona"),
+        Index("ix_persona_profiles_persona_status", "persona_id", "generation_status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     persona_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("personas.id", ondelete="CASCADE"), index=True)
@@ -124,6 +129,14 @@ class PersonaProfile(Base):
     beauty: Mapped[dict] = mapped_column(JSONB, default=dict)
     world: Mapped[dict] = mapped_column(JSONB, default=dict)
     carousel_rules: Mapped[dict] = mapped_column(JSONB, default=dict)
+    generation_status: Mapped[str] = mapped_column(String(32), default="empty")
+    generation_requested_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    generation_effective_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    generation_model_used: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    generation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_started_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    generation_completed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    generation_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     generated_mode: Mapped[str] = mapped_column(String(32), default="offline")
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)

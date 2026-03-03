@@ -19,8 +19,21 @@ type Persona = {
   id: string;
   name: string;
   handle: string;
+  age: number;
   city: string;
   niche: string;
+  gender: "male" | "female";
+};
+
+type PersonaProfileStatus = {
+  generation_status: "empty" | "queued" | "generating" | "ready" | "failed";
+  generation_requested_mode?: string | null;
+  generation_effective_mode?: string | null;
+  generation_model_used?: string | null;
+  generation_error?: string | null;
+  generation_started_at?: string | null;
+  generation_completed_at?: string | null;
+  generation_run_id?: string | null;
 };
 
 type CalendarMonth = {
@@ -37,11 +50,28 @@ const GOALS = [
   { id: "authority", label: "Build authority in niche" }
 ];
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function profileStatusLabel(status?: string): string {
+  if (status === "ready") return "Profile ready";
+  if (status === "queued") return "Queued";
+  if (status === "generating") return "Generating";
+  if (status === "failed") return "Failed";
+  return "Not generated";
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
   try {
-    const payload = JSON.parse(text) as { detail?: string };
-    if (payload.detail) return payload.detail;
+    const payload = JSON.parse(text) as { detail?: string | { message?: string; code?: string; status?: string } };
+    if (typeof payload.detail === "string" && payload.detail) return payload.detail;
+    if (payload.detail && typeof payload.detail === "object") {
+      if (payload.detail.message) return payload.detail.message;
+      if (payload.detail.code) return payload.detail.code;
+      if (payload.detail.status) return payload.detail.status;
+    }
   } catch {
     // no-op
   }
@@ -55,6 +85,7 @@ export default function OnboardingPage() {
 
   const [state, setState] = useState<OnboardingState | null>(null);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [profileStates, setProfileStates] = useState<Record<string, PersonaProfileStatus>>({});
   const [selectedGoal, setSelectedGoal] = useState("followers");
   const [selectedPersonaId, setSelectedPersonaId] = useState("");
   const [preview, setPreview] = useState<CalendarMonth | null>(null);
@@ -69,12 +100,15 @@ export default function OnboardingPage() {
     city: "Milan",
     niche: "Fashion & Lifestyle",
     vibe: "Confident, modern, premium",
+    gender: "female" as "male" | "female",
     template: "fashion"
   });
 
   const currentStep = state?.current_step ?? 0;
   const completed = Boolean(state?.completed);
-  const progress = useMemo(() => Math.min(100, Math.max(0, (currentStep / 4) * 100)), [currentStep]);
+  const progress = useMemo(() => Math.min(100, Math.max(0, (currentStep / 5) * 100)), [currentStep]);
+  const selectedPersonaProfile = selectedPersonaId ? profileStates[selectedPersonaId] : undefined;
+  const isProfileReady = selectedPersonaProfile?.generation_status === "ready";
 
   async function saveStep(step: number, goal?: string): Promise<void> {
     if (!token) return;
@@ -109,6 +143,71 @@ export default function OnboardingPage() {
     if (personaPayload[0]) {
       setSelectedPersonaId(personaPayload[0].id);
     }
+
+    const statusRows = await Promise.all(
+      personaPayload.map(async (persona) => {
+        const statusRes = await fetch(`${API_URL}/api/personas/${persona.id}/profile/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!statusRes.ok) return [persona.id, null] as const;
+        return [persona.id, (await statusRes.json()) as PersonaProfileStatus] as const;
+      })
+    );
+    setProfileStates(
+      statusRows.reduce<Record<string, PersonaProfileStatus>>((acc, [personaId, statusPayload]) => {
+        if (statusPayload) acc[personaId] = statusPayload;
+        return acc;
+      }, {})
+    );
+  }
+
+  async function fetchProfileStatus(personaId: string): Promise<PersonaProfileStatus | null> {
+    if (!token || !personaId) return null;
+    const res = await fetch(`${API_URL}/api/personas/${personaId}/profile/status`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as PersonaProfileStatus;
+    setProfileStates((prev) => ({ ...prev, [personaId]: payload }));
+    return payload;
+  }
+
+  async function pollProfileStatus(personaId: string, maxAttempts = 120): Promise<PersonaProfileStatus | null> {
+    for (let i = 0; i < maxAttempts; i += 1) {
+      const payload = await fetchProfileStatus(personaId);
+      if (!payload) return null;
+      if (payload.generation_status === "ready" || payload.generation_status === "failed") {
+        return payload;
+      }
+      await sleep(1500);
+    }
+    return null;
+  }
+
+  async function startProfileBuild(mode: "auto" | "offline" | "llm" = "auto"): Promise<void> {
+    if (!token || !selectedPersonaId || busy) return;
+    try {
+      setBusy(true);
+      setError("");
+      const res = await fetch(`${API_URL}/api/personas/${selectedPersonaId}/profile/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ mode })
+      });
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+      await saveStep(3, selectedGoal);
+      const finalStatus = await pollProfileStatus(selectedPersonaId);
+      if (finalStatus?.generation_status === "ready") {
+        await trackEvent("onboarding_step_completed", { step: 3, status: "ready" }, token);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cannot start profile generation");
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -140,6 +239,13 @@ export default function OnboardingPage() {
       router.push("/dashboard");
     }
   }, [completed, router]);
+
+  useEffect(() => {
+    if (!token || !selectedPersonaId) return;
+    const statusValue = profileStates[selectedPersonaId]?.generation_status;
+    if (statusValue === "ready" || statusValue === "failed") return;
+    void pollProfileStatus(selectedPersonaId, 80);
+  }, [token, selectedPersonaId]);
 
   async function chooseGoal(goalId: string): Promise<void> {
     if (!token || busy) return;
@@ -173,8 +279,16 @@ export default function OnboardingPage() {
       const created = (await res.json()) as Persona;
       setPersonas((prev) => [created, ...prev]);
       setSelectedPersonaId(created.id);
+      setProfileStates((prev) => ({
+        ...prev,
+        [created.id]: {
+          generation_status: "queued"
+        }
+      }));
       await saveStep(2, selectedGoal);
+      await saveStep(3, selectedGoal);
       await trackEvent("persona_created", { source: "onboarding" }, token);
+      await pollProfileStatus(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot create persona");
     } finally {
@@ -188,6 +302,11 @@ export default function OnboardingPage() {
       setBusy(true);
       setError("");
       await saveStep(2, selectedGoal);
+      await saveStep(3, selectedGoal);
+      const statusPayload = await fetchProfileStatus(selectedPersonaId);
+      if (statusPayload?.generation_status !== "ready") {
+        await pollProfileStatus(selectedPersonaId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot continue");
     } finally {
@@ -200,6 +319,10 @@ export default function OnboardingPage() {
     try {
       setBusy(true);
       setError("");
+      const statusPayload = profileStates[selectedPersonaId] ?? (await fetchProfileStatus(selectedPersonaId));
+      if (!statusPayload || statusPayload.generation_status !== "ready") {
+        throw new Error("Profile is not ready yet. Wait for profile build to complete before preview generation.");
+      }
       const now = new Date();
       const month = now.getMonth() + 1;
       const year = now.getFullYear();
@@ -215,7 +338,7 @@ export default function OnboardingPage() {
       if (!res.ok) throw new Error(await extractErrorMessage(res));
       const payload = (await res.json()) as CalendarMonth;
       setPreview(payload);
-      await saveStep(3, selectedGoal);
+      await saveStep(4, selectedGoal);
       await trackEvent("calendar_generated", { source: "onboarding" }, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot generate preview");
@@ -234,7 +357,7 @@ export default function OnboardingPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(await extractErrorMessage(res));
-      await trackEvent("onboarding_step_completed", { step: 4, completed: true }, token);
+      await trackEvent("onboarding_step_completed", { step: 5, completed: true }, token);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cannot complete onboarding");
@@ -316,6 +439,23 @@ export default function OnboardingPage() {
           />
           <input
             className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+            type="number"
+            min={18}
+            max={100}
+            value={personaForm.age}
+            onChange={(e) => setPersonaForm((prev) => ({ ...prev, age: Number(e.target.value) }))}
+            placeholder="Age"
+          />
+          <select
+            className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+            value={personaForm.gender}
+            onChange={(e) => setPersonaForm((prev) => ({ ...prev, gender: e.target.value as "male" | "female" }))}
+          >
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+          </select>
+          <input
+            className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
             placeholder="City"
             value={personaForm.city}
             onChange={(e) => setPersonaForm((prev) => ({ ...prev, city: e.target.value }))}
@@ -325,6 +465,12 @@ export default function OnboardingPage() {
             placeholder="Niche"
             value={personaForm.niche}
             onChange={(e) => setPersonaForm((prev) => ({ ...prev, niche: e.target.value }))}
+          />
+          <input
+            className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 sm:col-span-2"
+            placeholder="Vibe (e.g. Confident, modern, premium)"
+            value={personaForm.vibe}
+            onChange={(e) => setPersonaForm((prev) => ({ ...prev, vibe: e.target.value }))}
           />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -350,10 +496,8 @@ export default function OnboardingPage() {
       </section>
 
       <section className="panel p-4">
-        <h2 className="text-lg font-black">3. Generate your first week</h2>
-        <p className="mt-1 text-xs text-slate-300">
-          FREE stays offline with zero external API cost. PRO/MAX unlock advanced generation and media workflows.
-        </p>
+        <h2 className="text-lg font-black">3. Build persona profile intelligence</h2>
+        <p className="mt-1 text-xs text-slate-300">Calendar and Media unlock only when profile generation is ready.</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <select
             value={selectedPersonaId}
@@ -369,13 +513,49 @@ export default function OnboardingPage() {
           </select>
           <button
             type="button"
-            onClick={generateFirstPreview}
+            onClick={() => void startProfileBuild("auto")}
             disabled={busy || !selectedPersonaId}
+            className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+          >
+            {busy ? "Working..." : "Start / Retry Profile Build"}
+          </button>
+        </div>
+
+        {selectedPersonaId ? (
+          <div className="mt-3 rounded-lg border border-cyan-300/30 bg-slate-950/50 p-3">
+            <p className="text-sm font-bold">Profile status: {profileStatusLabel(selectedPersonaProfile?.generation_status)}</p>
+            <p className="mt-1 text-xs text-slate-200">
+              Mode: {selectedPersonaProfile?.generation_effective_mode?.toUpperCase() || "AUTO"} · Model:{" "}
+              {selectedPersonaProfile?.generation_model_used || "pending"}
+            </p>
+            {selectedPersonaProfile?.generation_error ? (
+              <p className="mt-2 text-xs text-rose-200">{selectedPersonaProfile.generation_error}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="panel p-4">
+        <h2 className="text-lg font-black">4. Generate your first week preview</h2>
+        <p className="mt-1 text-xs text-slate-300">
+          FREE stays offline with zero external API cost. PRO/MAX unlock advanced generation and media workflows.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={generateFirstPreview}
+            disabled={busy || !selectedPersonaId || !isProfileReady}
             className="rounded-lg bg-lime-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
           >
             {busy ? "Generating..." : "Generate Preview Calendar"}
           </button>
         </div>
+
+        {!isProfileReady ? (
+          <p className="mt-3 rounded-lg border border-amber-300/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            Profile must be ready before preview generation.
+          </p>
+        ) : null}
 
         {preview ? (
           <div className="mt-3 rounded-lg border border-cyan-300/30 bg-slate-950/50 p-3">
@@ -394,7 +574,7 @@ export default function OnboardingPage() {
       </section>
 
       <section className="panel p-4">
-        <h2 className="text-lg font-black">4. Activate command center</h2>
+        <h2 className="text-lg font-black">5. Activate command center</h2>
         <p className="mt-1 text-xs text-slate-300">
           Continue into dashboard with persona memory, saved calendars, billing, and media operations.
         </p>

@@ -21,20 +21,20 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 def _value_snapshot_for_tier(tier: str) -> list[str]:
     if tier == "free":
         return [
-            "You can launch one creator persona and stay consistent every week.",
-            "Your content engine runs fully offline with no external API cost.",
-            "You get actionable post prompts and captions ready to publish.",
+            "Unlimited calendar generations/regenerations with fair-use protection.",
+            "1 persona with 7-day generation window per run.",
+            "Fully offline engine with zero external API cost.",
         ]
     if tier == "pro":
         return [
-            "You can run up to three personas with a full monthly cadence.",
-            "Your calendars are upgraded with AI hooks and stronger CTAs.",
-            "You can scale content quality while keeping operational speed.",
+            "Unlimited calendar generations/regenerations with fair-use protection.",
+            "3 personas with 30-day generation window per run.",
+            "500 monthly credits and OpenRouter-enhanced strategy.",
         ]
     return [
-        "You can run a multi-persona creator portfolio at agency level.",
-        "Your campaign output includes monetization-oriented framing.",
-        "You can execute premium content systems with higher strategic depth.",
+        "Unlimited calendar generations/regenerations with fair-use protection.",
+        "10 personas with 30-day generation window per run.",
+        "2500 monthly credits for high-output media workflows.",
     ]
 
 

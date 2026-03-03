@@ -1,70 +1,54 @@
 import asyncio
+import datetime as dt
+import uuid
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from vidra_api.config import settings
-from vidra_api.database import get_db
+from vidra_api.database import SessionLocal, get_db
 from vidra_api.deps import get_current_user
 from vidra_api.models import CalendarMonth, MediaGeneration, Persona, PersonaProfile, User
 from vidra_api.persona_intel import PersonaProfileBundle, build_llm_profile, build_offline_profile
 from vidra_api.plans import normalize_tier, personas_limit_for_tier, upgrade_target_for_tier
 from vidra_api.schemas import (
     CalendarMonthSummaryOut,
+    MediaJobSummaryOut,
     PersonaCreate,
     PersonaDetailOut,
     PersonaOut,
-    PersonaProfileGenerateRequest,
     PersonaProfileOut,
-    MediaJobSummaryOut,
+    PersonaProfileGenerateRequest,
+    PersonaProfileStatusOut,
 )
 
 router = APIRouter(prefix="/personas", tags=["personas"])
-
-
-async def _bundle_for_persona(persona: Persona, *, tier: str, mode: str) -> PersonaProfileBundle:
-    if mode == "llm":
-        if not settings.openrouter_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OPENROUTER_API_KEY is not configured.",
-            )
-        if tier not in {"pro", "max"}:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="LLM profile generation is available only for PRO/MAX tiers.",
-            )
-        try:
-            # Offload blocking LLM/network work to a thread so API health checks remain responsive.
-            return await asyncio.wait_for(
-                asyncio.to_thread(build_llm_profile, persona),
-                timeout=settings.profile_generation_timeout_seconds,
-            )
-        except asyncio.TimeoutError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail=(
-                    "LLM profile generation timed out. "
-                    "Try again or switch model, or use offline mode for immediate output."
-                ),
-            ) from exc
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"LLM profile generation failed: {exc}",
-            ) from exc
-
-    return build_offline_profile(persona)
 
 
 def _auto_mode_for_tier(tier: str) -> str:
     if tier in {"pro", "max"} and settings.openrouter_api_key:
         return "llm"
     return "offline"
+
+
+def _resolve_effective_mode(*, tier: str, requested_mode: str) -> str:
+    if requested_mode == "auto":
+        return _auto_mode_for_tier(tier)
+    return requested_mode
+
+
+def _serialize_calendar_summary(month: CalendarMonth) -> CalendarMonthSummaryOut:
+    return CalendarMonthSummaryOut(
+        id=month.id,
+        month=month.month,
+        year=month.year,
+        mode=month.mode,
+        days_count=len(month.days),
+    )
 
 
 def _apply_bundle(profile: PersonaProfile, bundle: PersonaProfileBundle) -> None:
@@ -80,6 +64,31 @@ def _apply_bundle(profile: PersonaProfile, bundle: PersonaProfileBundle) -> None
     profile.carousel_rules = bundle.carousel_rules
     profile.generated_mode = bundle.generated_mode
     profile.updated_at = datetime.utcnow()
+
+
+def _compute_profile_status(profile: PersonaProfile | None) -> PersonaProfileStatusOut:
+    if profile is None:
+        return PersonaProfileStatusOut(generation_status="empty")
+
+    has_profile_content = bool((profile.prompt_blueprint or "").strip() or (profile.bio or "").strip())
+    status_value = (profile.generation_status or "").strip().lower()
+    if status_value not in {"empty", "queued", "generating", "ready", "failed"}:
+        status_value = "ready" if has_profile_content else "empty"
+
+    effective_mode = profile.generation_effective_mode
+    if not effective_mode and status_value == "ready":
+        effective_mode = "llm" if profile.generated_mode == "llm" else "offline"
+
+    return PersonaProfileStatusOut(
+        generation_status=status_value,
+        generation_requested_mode=profile.generation_requested_mode,
+        generation_effective_mode=effective_mode,
+        generation_model_used=profile.generation_model_used,
+        generation_error=profile.generation_error,
+        generation_started_at=profile.generation_started_at,
+        generation_completed_at=profile.generation_completed_at,
+        generation_run_id=profile.generation_run_id,
+    )
 
 
 def _serialize_profile(profile: PersonaProfile | None) -> PersonaProfileOut | None:
@@ -100,14 +109,109 @@ def _serialize_profile(profile: PersonaProfile | None) -> PersonaProfileOut | No
     )
 
 
-def _serialize_calendar_summary(month: CalendarMonth) -> CalendarMonthSummaryOut:
-    return CalendarMonthSummaryOut(
-        id=month.id,
-        month=month.month,
-        year=month.year,
-        mode=month.mode,
-        days_count=len(month.days),
-    )
+def _mark_profile_queued(profile: PersonaProfile, *, requested_mode: str, run_id: str) -> None:
+    profile.generation_status = "queued"
+    profile.generation_requested_mode = requested_mode
+    profile.generation_error = None
+    profile.generation_started_at = None
+    profile.generation_completed_at = None
+    profile.generation_run_id = run_id
+    profile.updated_at = datetime.utcnow()
+
+
+async def _run_profile_generation_job(*, user_id: UUID, persona_id: UUID, requested_mode: str, run_id: str) -> None:
+    async with SessionLocal() as db:  # type: AsyncSession
+        user_q = await db.execute(select(User).where(User.id == user_id))
+        user = user_q.scalar_one_or_none()
+        if user is None:
+            return
+
+        persona_q = await db.execute(
+            select(Persona).options(selectinload(Persona.profile)).where(Persona.id == persona_id, Persona.user_id == user.id)
+        )
+        persona = persona_q.scalar_one_or_none()
+        if persona is None:
+            return
+
+        profile = persona.profile
+        if profile is None:
+            profile = PersonaProfile(persona_id=persona.id)
+            db.add(profile)
+            await db.flush()
+
+        # Ignore stale queued jobs.
+        if profile.generation_run_id != run_id:
+            return
+
+        tier = normalize_tier(user.tier)
+        effective_mode = _resolve_effective_mode(tier=tier, requested_mode=requested_mode)
+
+        profile.generation_status = "generating"
+        profile.generation_requested_mode = requested_mode
+        profile.generation_effective_mode = effective_mode
+        profile.generation_model_used = None
+        profile.generation_error = None
+        profile.generation_started_at = dt.datetime.utcnow()
+        profile.generation_completed_at = None
+        profile.updated_at = dt.datetime.utcnow()
+        await db.commit()
+
+        if effective_mode == "llm":
+            if tier not in {"pro", "max"}:
+                profile.generation_status = "failed"
+                profile.generation_error = "LLM profile generation is available only for PRO/MAX tiers."
+                profile.generation_completed_at = dt.datetime.utcnow()
+                profile.updated_at = dt.datetime.utcnow()
+                await db.commit()
+                return
+            if not settings.openrouter_api_key:
+                profile.generation_status = "failed"
+                profile.generation_error = "OPENROUTER_API_KEY is not configured."
+                profile.generation_completed_at = dt.datetime.utcnow()
+                profile.updated_at = dt.datetime.utcnow()
+                await db.commit()
+                return
+
+        try:
+            if effective_mode == "llm":
+                bundle = await asyncio.wait_for(
+                    asyncio.to_thread(build_llm_profile, persona),
+                    timeout=settings.profile_generation_timeout_seconds,
+                )
+                model_used = settings.openrouter_model
+            else:
+                bundle = build_offline_profile(persona)
+                model_used = "offline"
+        except asyncio.TimeoutError:
+            profile.generation_status = "failed"
+            profile.generation_error = "Profile generation timed out. Try again or use offline mode."
+            profile.generation_completed_at = dt.datetime.utcnow()
+            profile.updated_at = dt.datetime.utcnow()
+            await db.commit()
+            return
+        except Exception as exc:  # noqa: BLE001
+            profile.generation_status = "failed"
+            profile.generation_error = f"Profile generation failed: {exc}"
+            profile.generation_completed_at = dt.datetime.utcnow()
+            profile.updated_at = dt.datetime.utcnow()
+            await db.commit()
+            return
+
+        await db.refresh(profile)
+        if profile.generation_run_id != run_id:
+            return
+
+        _apply_bundle(profile, bundle)
+        profile.generation_status = "ready"
+        profile.generation_requested_mode = requested_mode
+        profile.generation_effective_mode = effective_mode
+        profile.generation_model_used = model_used
+        profile.generation_error = None
+        if profile.generation_started_at is None:
+            profile.generation_started_at = dt.datetime.utcnow()
+        profile.generation_completed_at = dt.datetime.utcnow()
+        profile.updated_at = dt.datetime.utcnow()
+        await db.commit()
 
 
 @router.get("", response_model=list[PersonaOut])
@@ -119,6 +223,7 @@ async def list_personas(user: User = Depends(get_current_user), db: AsyncSession
 @router.post("", response_model=PersonaOut)
 async def create_persona(
     payload: PersonaCreate,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PersonaOut:
@@ -139,18 +244,24 @@ async def create_persona(
     db.add(persona)
     await db.flush()
 
-    mode = _auto_mode_for_tier(tier)
-    try:
-        bundle = await _bundle_for_persona(persona, tier=tier, mode=mode)
-    except HTTPException:
-        # Persona creation should stay available even if paid profile generation fails.
-        bundle = build_offline_profile(persona)
     profile = PersonaProfile(persona_id=persona.id)
-    _apply_bundle(profile, bundle)
     db.add(profile)
+    await db.flush()
+
+    run_id = uuid.uuid4().hex
+    _mark_profile_queued(profile, requested_mode="auto", run_id=run_id)
 
     await db.commit()
     await db.refresh(persona)
+
+    background_tasks.add_task(
+        _run_profile_generation_job,
+        user_id=user.id,
+        persona_id=persona.id,
+        requested_mode="auto",
+        run_id=run_id,
+    )
+
     return persona
 
 
@@ -195,6 +306,7 @@ async def get_persona_detail(
     return PersonaDetailOut(
         persona=persona,
         profile=_serialize_profile(persona.profile),
+        profile_status=_compute_profile_status(persona.profile),
         calendars=[_serialize_calendar_summary(month) for month in sorted_months],
         media_generated_count=media_count,
         recent_media_jobs=[
@@ -210,17 +322,12 @@ async def get_persona_detail(
     )
 
 
-@router.post("/{persona_id}/profile/generate", response_model=PersonaProfileOut)
-async def generate_persona_profile(
+@router.get("/{persona_id}/profile/status", response_model=PersonaProfileStatusOut)
+async def get_persona_profile_status(
     persona_id: UUID,
-    payload: PersonaProfileGenerateRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> PersonaProfileOut:
-    tier = normalize_tier(user.tier)
-    requested_mode = payload.mode
-    mode = _auto_mode_for_tier(tier) if requested_mode == "auto" else requested_mode
-
+) -> PersonaProfileStatusOut:
     result = await db.execute(
         select(Persona).options(selectinload(Persona.profile)).where(Persona.id == persona_id, Persona.user_id == user.id)
     )
@@ -228,28 +335,43 @@ async def generate_persona_profile(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
-    try:
-        bundle = await _bundle_for_persona(persona, tier=tier, mode=mode)
-    except HTTPException as exc:
-        # In auto mode keep UX reliable: fall back to offline profile instead of hanging/failing.
-        if requested_mode == "auto":
-            bundle = build_offline_profile(persona)
-        else:
-            raise exc
+    return _compute_profile_status(persona.profile)
+
+
+@router.post("/{persona_id}/profile/generate", response_model=PersonaProfileStatusOut)
+async def generate_persona_profile(
+    persona_id: UUID,
+    payload: PersonaProfileGenerateRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PersonaProfileStatusOut:
+    result = await db.execute(
+        select(Persona).options(selectinload(Persona.profile)).where(Persona.id == persona_id, Persona.user_id == user.id)
+    )
+    persona = result.scalar_one_or_none()
+    if persona is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
     profile = persona.profile
     if profile is None:
         profile = PersonaProfile(persona_id=persona.id)
         db.add(profile)
+        await db.flush()
 
-    _apply_bundle(profile, bundle)
-
+    run_id = uuid.uuid4().hex
+    _mark_profile_queued(profile, requested_mode=payload.mode, run_id=run_id)
     await db.commit()
-    await db.refresh(profile)
-    serialized = _serialize_profile(profile)
-    if serialized is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Profile serialization failed")
-    return serialized
+
+    background_tasks.add_task(
+        _run_profile_generation_job,
+        user_id=user.id,
+        persona_id=persona.id,
+        requested_mode=payload.mode,
+        run_id=run_id,
+    )
+
+    return _compute_profile_status(profile)
 
 
 @router.delete("/{persona_id}", status_code=204)
@@ -278,10 +400,10 @@ async def update_persona(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
-    for key, value in payload.model_dump().items():
-        setattr(persona, key, value)
-    persona.updated_at = datetime.utcnow()
+    for field, value in payload.model_dump().items():
+        setattr(persona, field, value)
 
+    persona.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(persona)
     return persona

@@ -20,6 +20,14 @@ class PersonaProfileBundle:
     generated_mode: str
 
 
+def _persona_gender(persona: Persona) -> str:
+    gender = (persona.gender or "").strip().lower()
+    if gender in {"male", "female"}:
+        return gender
+    legacy_template = (persona.template or "").strip().lower()
+    return "male" if legacy_template == "male" else "female"
+
+
 def _persona_dict(persona: Persona) -> dict[str, Any]:
     return {
         "name": persona.name,
@@ -28,13 +36,76 @@ def _persona_dict(persona: Persona) -> dict[str, Any]:
         "city": persona.city,
         "niche": persona.niche,
         "vibe": persona.vibe,
-        "gender": "female" if persona.template.lower() != "male" else "male",
+        "gender": _persona_gender(persona),
         "income_vibe": "upper-middle class with occasional luxury",
     }
 
 
 def _offline_wardrobe(persona: Persona) -> dict[str, list[dict[str, Any]]]:
     niche = persona.niche
+    gender = _persona_gender(persona)
+    if gender == "male":
+        return {
+            "shirts": [
+                {
+                    "id": "shirt_001",
+                    "name": "Tailored oxford shirt",
+                    "prompt_snippet": f"tailored oxford shirt, clean collar, premium {niche} aesthetic",
+                    "occasion": ["casual", "content", "day"],
+                },
+                {
+                    "id": "shirt_002",
+                    "name": "Merino knit polo",
+                    "prompt_snippet": "fine-gauge merino knit polo, fitted silhouette, polished texture",
+                    "occasion": ["business", "urban", "dinner"],
+                },
+            ],
+            "trousers": [
+                {
+                    "id": "trousers_001",
+                    "name": "Tapered wool trousers",
+                    "prompt_snippet": "tapered wool trousers, soft drape, modern tailored fit",
+                    "occasion": ["business", "city", "content"],
+                },
+                {
+                    "id": "trousers_002",
+                    "name": "Dark selvedge denim",
+                    "prompt_snippet": "dark selvedge denim, minimal wash, premium casual structure",
+                    "occasion": ["casual", "weekend", "street"],
+                },
+            ],
+            "suits": [
+                {
+                    "id": "suit_001",
+                    "name": "Midnight structured suit",
+                    "prompt_snippet": "midnight structured suit, modern lapel, editorial fit",
+                    "occasion": ["formal", "event", "luxury"],
+                }
+            ],
+            "shoes": [
+                {
+                    "id": "shoes_001",
+                    "name": "Minimal leather sneakers",
+                    "prompt_snippet": "minimal leather sneakers, clean white sole, discreet branding",
+                    "occasion": ["casual", "travel", "street"],
+                },
+                {
+                    "id": "shoes_002",
+                    "name": "Polished derby shoes",
+                    "prompt_snippet": "polished derby shoes in deep brown leather, premium finish",
+                    "occasion": ["formal", "business", "event"],
+                },
+            ],
+            "accessories": [
+                {
+                    "id": "accessories_001",
+                    "name": "Steel watch",
+                    "prompt_snippet": "minimal steel watch with dark dial, refined masculine styling",
+                    "occasion": ["daily", "business", "evening"],
+                }
+            ],
+        }
+
     return {
         "tops": [
             {
@@ -64,6 +135,14 @@ def _offline_wardrobe(persona: Persona) -> dict[str, list[dict[str, Any]]]:
                 "occasion": ["casual", "weekend", "city"],
             },
         ],
+        "dresses": [
+            {
+                "id": "dress_001",
+                "name": "Slip midi dress",
+                "prompt_snippet": "silk slip midi dress, elegant movement, editorial styling",
+                "occasion": ["date_night", "event", "lifestyle"],
+            }
+        ],
         "shoes": [
             {
                 "id": "shoes_001",
@@ -73,73 +152,149 @@ def _offline_wardrobe(persona: Persona) -> dict[str, list[dict[str, Any]]]:
             },
             {
                 "id": "shoes_002",
-                "name": "Evening heels",
-                "prompt_snippet": "sleek evening heels with elegant thin straps",
+                "name": "Block-heel pumps",
+                "prompt_snippet": "block-heel pumps with elegant straps and polished finish",
                 "occasion": ["night_out", "formal", "date_night"],
             },
+        ],
+        "accessories": [
+            {
+                "id": "accessories_001",
+                "name": "Signature jewelry set",
+                "prompt_snippet": "signature layered jewelry, subtle luxury accents, cohesive styling",
+                "occasion": ["daily", "event", "editorial"],
+            }
         ],
     }
 
 
 def build_offline_profile(persona: Persona) -> PersonaProfileBundle:
+    gender = _persona_gender(persona)
     wardrobe = _offline_wardrobe(persona)
 
     bio = (
-        f"{persona.name} | {persona.city}. Building a {persona.niche} digital brand with a "
-        f"{persona.vibe.lower()} identity and consistent storytelling."
+        f"{persona.name} · {persona.city}. {persona.niche} creator with a {persona.vibe.lower()} tone. "
+        "Publishing consistent story-driven content with signature visual identity."
     )
 
     backstory = (
         f"# {persona.name} — Backstory\n\n"
-        f"{persona.name} grows up with strong creative instincts and turns everyday moments in {persona.city} "
-        f"into visual stories. The personal brand is built around consistent style, intentional routines, and "
-        f"a clear niche focus on {persona.niche}."
+        f"{persona.name}, a {persona.age}-year-old creator from {persona.city}, built their online voice by translating "
+        f"everyday city moments into cinematic micro-stories. The niche focus is {persona.niche}, with a {persona.vibe.lower()} "
+        "creative signature that blends aspirational lifestyle with practical value.\n\n"
+        "The origin arc starts from small, routine documentation: cafe notes, street textures, and behind-the-scenes rituals. "
+        "Consistency, not virality, became the growth lever. Over time, this evolved into a recognizable personal brand system."
     )
 
     future = (
         f"# {persona.name} — Future Plans\n\n"
-        f"Short term: grow a reliable posting system and strengthen audience retention.\n"
-        f"Mid term: launch collaborations aligned with {persona.niche}.\n"
-        f"Long term: evolve into a premium creator brand with a repeatable monetization strategy."
+        f"## Short Term (Next 90 Days)\n"
+        f"- Lock a weekly publishing rhythm around {persona.niche} educational + aspirational posts.\n"
+        "- Improve hooks, retention loops, and story continuity across reels and carousel formats.\n\n"
+        f"## Mid Term (6-12 Months)\n"
+        f"- Build recurring collaborations with brands aligned to {persona.niche} values.\n"
+        "- Launch one lightweight digital asset for monetization (guide, mini-course, or template).\n\n"
+        "## Long Term (1-3 Years)\n"
+        "- Evolve into a premium creator business with stable sponsorship and owned revenue streams."
     )
 
     strategy = (
         f"# {persona.name} — Strategy\n\n"
-        f"Content pillars: lifestyle scenes, niche authority, conversion hooks, behind-the-scenes trust.\n"
-        f"Voice: concise, confident, intimate.\n"
-        f"Cadence: daily execution with weekly storyline continuity."
+        f"- **Positioning:** {persona.niche} creator from {persona.city} with a {persona.vibe.lower()} POV.\n"
+        "- **Core Pillars:** authority posts, lifestyle proof, BTS trust moments, conversion hooks.\n"
+        "- **Cadence:** daily short-form + weekly narrative arc + monthly campaign objective.\n"
+        "- **CTA Pattern:** save/share/discuss/DM mix to balance reach and conversion."
     )
 
     physical = {
-        "face": "symmetrical facial structure, expressive eyes, clean skin texture, editorial-ready look",
-        "hair_default": "natural movement with polished finish, medium length and camera-friendly volume",
+        "identity_lock": f"{persona.name}, {persona.age}, {gender}, from {persona.city}",
+        "face": "symmetrical facial structure, expressive eyes, editorial-ready details",
+        "hair_default": "camera-friendly hair texture with polished shape and natural movement",
         "body": "balanced proportions, upright posture, confident body language",
-        "skin": "smooth complexion with subtle realistic texture and natural highlights",
+        "skin": "realistic skin texture with natural highlights and soft detail retention",
+        "signature_expression": "calm confidence with subtle smile; poised and intentional",
     }
 
-    beauty = {
-        "makeup": [
-            {
-                "id": "makeup_001",
-                "name": "Soft daily glam",
-                "prompt_snippet": "soft skin finish, subtle liner, natural blush, hydrated lips",
-            }
-        ],
-        "hairstyles": [
-            {
-                "id": "hair_001",
-                "name": "Natural volume",
-                "prompt_snippet": "natural flowing hair with clean center part and soft volume",
-            }
-        ],
-        "nails": [
-            {
-                "id": "nails_001",
-                "name": "Clean nude manicure",
-                "prompt_snippet": "short almond nude manicure, glossy finish",
-            }
-        ],
-    }
+    if gender == "female":
+        beauty: dict[str, list[dict[str, Any]]] = {
+            "makeup": [
+                {
+                    "id": "makeup_001",
+                    "name": "Soft daily glam",
+                    "prompt_snippet": "soft skin finish, subtle liner, natural blush, hydrated lips",
+                },
+                {
+                    "id": "makeup_002",
+                    "name": "Editorial evening look",
+                    "prompt_snippet": "defined eyeliner, satin skin, warm contour, glossy nude lips",
+                },
+            ],
+            "hairstyles": [
+                {
+                    "id": "hair_001",
+                    "name": "Natural volume",
+                    "prompt_snippet": "natural flowing hair with clean center part and soft volume",
+                },
+                {
+                    "id": "hair_002",
+                    "name": "Sleek low bun",
+                    "prompt_snippet": "sleek low bun with polished edges and clean face framing",
+                },
+            ],
+            "nails": [
+                {
+                    "id": "nails_001",
+                    "name": "Clean nude manicure",
+                    "prompt_snippet": "short almond nude manicure, glossy finish",
+                },
+                {
+                    "id": "nails_002",
+                    "name": "Statement chrome set",
+                    "prompt_snippet": "medium chrome manicure with precise reflective finish",
+                },
+            ],
+            "skincare": [
+                {
+                    "id": "skincare_001",
+                    "name": "Hydration prep",
+                    "prompt_snippet": "hydrated skin prep with natural dewy highlights, no harsh shine",
+                }
+            ],
+        }
+    else:
+        beauty = {
+            "hairstyles": [
+                {
+                    "id": "hair_001",
+                    "name": "Textured modern crop",
+                    "prompt_snippet": "textured modern crop with natural matte volume and sharp line-up",
+                },
+                {
+                    "id": "hair_002",
+                    "name": "Classic side part",
+                    "prompt_snippet": "classic side part with clean fade and controlled top movement",
+                },
+            ],
+            "grooming": [
+                {
+                    "id": "grooming_001",
+                    "name": "Clean shave",
+                    "prompt_snippet": "clean shave with precise neckline and even skin tone",
+                },
+                {
+                    "id": "grooming_002",
+                    "name": "Short boxed beard",
+                    "prompt_snippet": "short boxed beard, sharp cheek line, tidy mustache blend",
+                },
+            ],
+            "skincare": [
+                {
+                    "id": "skincare_001",
+                    "name": "Matte daily routine",
+                    "prompt_snippet": "balanced matte complexion, healthy skin detail, no heavy shine",
+                }
+            ],
+        }
 
     world = {
         "events": [
@@ -153,19 +308,30 @@ def build_offline_profile(persona: Persona) -> PersonaProfileBundle:
                 "type": "cultural",
                 "content_opportunity": "outfit reels, carousel storytelling, location mood posts",
             },
+            {
+                "name": f"{persona.city} seasonal premium venues",
+                "type": "lifestyle",
+                "content_opportunity": "high-intent product placement and premium audience hooks",
+            },
         ],
         "devices": [
             {
                 "type": "phone",
                 "name": "flagship smartphone",
                 "prompt_snippet": "holding modern smartphone with transparent case",
+            },
+            {
+                "type": "camera",
+                "name": "mirrorless camera",
+                "prompt_snippet": "using a compact mirrorless camera for behind-the-scenes creator shots",
             }
         ],
     }
 
     prompt_blueprint = (
-        f"{persona.name}, {persona.age} years old, {persona.niche} creator from {persona.city}, "
-        f"{persona.vibe.lower()} energy, consistent facial identity, photorealistic, detailed skin texture"
+        f"{persona.name}, {persona.age} years old, {gender} {persona.niche} creator from {persona.city}, "
+        f"{persona.vibe.lower()} energy, identity lock enabled, consistent face geometry, "
+        "photorealistic, natural skin texture, premium editorial framing, coherent wardrobe continuity"
     )
 
     carousel_rules = {
@@ -223,11 +389,44 @@ def build_llm_profile(persona: Persona) -> PersonaProfileBundle:
     wardrobe["shoes"] = generate_shoes(llm, p)
     wardrobe["accessories"] = generate_accessories(llm, p)
 
-    beauty = {
-        "makeup": generate_makeup_styles(llm, p),
-        "hairstyles": generate_hairstyles(llm, p, physical),
-        "nails": generate_nail_styles(llm, p),
-    }
+    if p["gender"] == "female":
+        beauty = {
+            "makeup": generate_makeup_styles(llm, p),
+            "hairstyles": generate_hairstyles(llm, p, physical),
+            "nails": generate_nail_styles(llm, p),
+        }
+    else:
+        try:
+            grooming = llm.generate_list(
+                f"""
+Generate 8 concise male grooming prompt objects for {p['name']} from {p['city']}.
+Return JSON list with keys: id, name, prompt_snippet.
+Focus on beard options, clean shave variants, and facial grooming details.
+"""
+            )
+        except Exception:
+            grooming = [
+                {"id": "grooming_001", "name": "Clean shave", "prompt_snippet": "clean shave, precise neckline, balanced skin texture"},
+                {"id": "grooming_002", "name": "Short boxed beard", "prompt_snippet": "short boxed beard with sharp cheek line and tidy mustache"},
+            ]
+
+        try:
+            skincare = llm.generate_list(
+                f"""
+Generate 6 concise male skincare prompt objects for {p['name']}.
+Return JSON list with keys: id, name, prompt_snippet.
+"""
+            )
+        except Exception:
+            skincare = [
+                {"id": "skincare_001", "name": "Daily matte prep", "prompt_snippet": "matte balanced skin prep, realistic pores, no heavy shine"}
+            ]
+
+        beauty = {
+            "hairstyles": generate_hairstyles(llm, p, physical),
+            "grooming": grooming,
+            "skincare": skincare,
+        }
 
     # World + events
     apartment = generate_apartment(llm, p)
@@ -278,7 +477,7 @@ Cover: pillars, positioning, voice, hooks, CTA styles, monetization angles.
     ).strip()
 
     prompt_blueprint = (
-        f"{p['name']}, {p['age']} years old, {p['niche']} creator from {p['city']}, "
+        f"{p['name']}, {p['age']} years old, {p['gender']} {p['niche']} creator from {p['city']}, "
         f"{p['vibe']} vibe, face identity locked, details: {physical.get('face', '')}, "
         f"skin: {physical.get('skin', '')}, hair: {physical.get('hair_default', '')}, photorealistic"
     )

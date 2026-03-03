@@ -1,6 +1,5 @@
 import asyncio
 import calendar as pycalendar
-import datetime as dt
 import logging
 from uuid import UUID
 
@@ -16,10 +15,7 @@ from vidra_api.models import CalendarDay, CalendarMonth, Persona, PersonaProfile
 from vidra_api.offline.generator import DayDraft, OfflineCalendarEngine
 from vidra_api.paid.generator import PaidCalendarEngine
 from vidra_api.persona_intel import (
-    PersonaProfileBundle,
     build_carousel_slides,
-    build_llm_profile,
-    build_offline_profile,
     pick_style_snippet,
 )
 from vidra_api.plans import generation_days_for_tier, generation_mode_for_tier, normalize_tier
@@ -87,26 +83,16 @@ def _expected_mode_for_tier(tier: str, *, openrouter_enabled: bool) -> str:
     return "offline"
 
 
-def _expected_profile_mode_for_tier(tier: str, *, openrouter_enabled: bool) -> str:
-    policy = generation_mode_for_tier(tier)
-    if policy == "llm" and openrouter_enabled:
-        return "llm"
-    return "offline"
+def _profile_generation_status(profile: PersonaProfile | None) -> str:
+    if profile is None:
+        return "empty"
 
+    status_value = (profile.generation_status or "").strip().lower()
+    if status_value in {"empty", "queued", "generating", "ready", "failed"}:
+        return status_value
 
-def _apply_profile_bundle(profile: PersonaProfile, bundle: PersonaProfileBundle) -> None:
-    profile.bio = bundle.bio
-    profile.backstory_md = bundle.backstory_md
-    profile.future_plans_md = bundle.future_plans_md
-    profile.strategy_md = bundle.strategy_md
-    profile.prompt_blueprint = bundle.prompt_blueprint
-    profile.physical = bundle.physical
-    profile.wardrobe = bundle.wardrobe
-    profile.beauty = bundle.beauty
-    profile.world = bundle.world
-    profile.carousel_rules = bundle.carousel_rules
-    profile.generated_mode = bundle.generated_mode
-    profile.updated_at = dt.datetime.utcnow()
+    has_profile_content = bool((profile.prompt_blueprint or "").strip() or (profile.bio or "").strip())
+    return "ready" if has_profile_content else "empty"
 
 
 async def _generate_drafts(persona: Persona, tier: str, month: int, year: int) -> tuple[list[DayDraft], str]:
@@ -237,30 +223,18 @@ async def generate_calendar(
     if persona is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Persona not found")
 
-    expected_profile_mode = _expected_profile_mode_for_tier(tier, openrouter_enabled=openrouter_enabled)
     profile = persona.profile
-    should_generate_profile = profile is None or (expected_profile_mode == "llm" and profile.generated_mode != "llm")
-
-    if should_generate_profile:
-        try:
-            if expected_profile_mode == "llm":
-                bundle = await asyncio.wait_for(
-                    asyncio.to_thread(build_llm_profile, persona),
-                    timeout=settings.profile_generation_timeout_seconds,
-                )
-            else:
-                bundle = build_offline_profile(persona)
-        except Exception:  # noqa: BLE001
-            logger.exception("Persona profile generation failed; using offline fallback profile.")
-            bundle = build_offline_profile(persona)
-
-        if profile is None:
-            profile = PersonaProfile(persona_id=persona.id)
-            db.add(profile)
-            await db.flush()
-
-        _apply_profile_bundle(profile, bundle)
-        await db.flush()
+    profile_status = _profile_generation_status(profile)
+    if profile is None or profile_status != "ready":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PROFILE_NOT_READY",
+                "status": profile_status,
+                "message": "Persona profile is not ready yet. Generate and wait for profile completion first.",
+                "action": "Open the persona workspace and complete profile generation before calendar creation.",
+            },
+        )
 
     month_q = await db.execute(
         select(CalendarMonth)

@@ -17,7 +17,28 @@ type Persona = {
   city: string;
   niche: string;
   vibe: string;
+  gender: "male" | "female";
   template: string;
+};
+
+type PersonaProfileStatus = {
+  generation_status: "empty" | "queued" | "generating" | "ready" | "failed";
+  generation_requested_mode?: string | null;
+  generation_effective_mode?: string | null;
+  generation_model_used?: string | null;
+  generation_error?: string | null;
+  generation_started_at?: string | null;
+  generation_completed_at?: string | null;
+  generation_run_id?: string | null;
+};
+
+type PlanEntitlements = {
+  calendar_generations: string;
+  calendar_regenerations: string;
+  personas_limit: number;
+  generation_days_per_run: number;
+  included_credits_monthly: number;
+  media_generation_requires_credits: boolean;
 };
 
 type Plan = {
@@ -28,6 +49,7 @@ type Plan = {
   outcomes: string[];
   limits: { personas: number; generation_days: number };
   generation_mode: string;
+  entitlements?: PlanEntitlements;
 };
 
 type DashboardOverview = {
@@ -52,11 +74,16 @@ type MyPlan = {
   next_tier?: string | null;
   personas_limit: number;
   generation_days_limit: number;
+  generation_days_per_run?: number;
   generation_mode: string;
   openrouter_enabled?: boolean;
   openrouter_model?: string | null;
+  calendar_generations?: string;
+  calendar_regenerations?: string;
+  media_generation_requires_credits?: boolean;
   credits_balance?: number;
   included_credits?: number;
+  included_credits_monthly?: number;
 };
 
 type CalendarSlide = {
@@ -121,12 +148,29 @@ function monthKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, "0")}`;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function profileStatusLabel(status?: string): string {
+  if (status === "ready") return "Profile ready";
+  if (status === "queued") return "Queued";
+  if (status === "generating") return "Generating";
+  if (status === "failed") return "Failed";
+  return "Not generated";
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
   try {
-    const payload = JSON.parse(text) as { detail?: string };
-    if (payload.detail) {
+    const payload = JSON.parse(text) as { detail?: string | { message?: string; code?: string; status?: string } };
+    if (typeof payload.detail === "string" && payload.detail) {
       return payload.detail;
+    }
+    if (payload.detail && typeof payload.detail === "object") {
+      if (payload.detail.message) return payload.detail.message;
+      if (payload.detail.code) return payload.detail.code;
+      if (payload.detail.status) return payload.detail.status;
     }
   } catch {
     // no-op
@@ -143,6 +187,12 @@ export default function DashboardPage() {
   const [myPlan, setMyPlan] = useState<MyPlan | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [personaProfileStates, setPersonaProfileStates] = useState<Record<string, PersonaProfileStatus>>({});
+  const [createFeedback, setCreateFeedback] = useState<{
+    personaId: string;
+    message: string;
+    status: PersonaProfileStatus["generation_status"] | "creating";
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<DashboardTab>("command");
 
   const [selectedPersonaId, setSelectedPersonaId] = useState("");
@@ -170,6 +220,7 @@ export default function DashboardPage() {
     city: "Milan",
     niche: "Fashion & Lifestyle",
     vibe: "Elegant, bold, authentic",
+    gender: "female" as "male" | "female",
     template: "fashion"
   });
 
@@ -237,6 +288,48 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchProfileStatus = async (personaId: string): Promise<PersonaProfileStatus | null> => {
+    if (!token || !personaId) return null;
+    const res = await fetch(`${API_URL}/api/personas/${personaId}/profile/status`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as PersonaProfileStatus;
+    setPersonaProfileStates((prev) => ({ ...prev, [personaId]: payload }));
+    return payload;
+  };
+
+  const pollProfileStatus = async (
+    personaId: string,
+    options?: { maxAttempts?: number; updateCreateFeedback?: boolean }
+  ): Promise<PersonaProfileStatus | null> => {
+    const maxAttempts = options?.maxAttempts ?? 120;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const statusPayload = await fetchProfileStatus(personaId);
+      if (!statusPayload) return null;
+
+      if (options?.updateCreateFeedback) {
+        setCreateFeedback({
+          personaId,
+          status: statusPayload.generation_status,
+          message:
+            statusPayload.generation_status === "ready"
+              ? "Profile ready."
+              : statusPayload.generation_status === "failed"
+                ? `Profile failed: ${statusPayload.generation_error || "unknown error"}`
+                : "Persona created. Preparing profile..."
+        });
+      }
+
+      if (statusPayload.generation_status === "ready" || statusPayload.generation_status === "failed") {
+        return statusPayload;
+      }
+
+      await sleep(1500);
+    }
+    return null;
+  };
+
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login");
@@ -276,6 +369,18 @@ export default function DashboardPage() {
         setMyPlan(myPlanData);
         setPlans(plansData.plans);
         setPersonas(personasData);
+        const statusRows = await Promise.all(
+          personasData.map(async (persona) => {
+            const statusPayload = await fetchProfileStatus(persona.id);
+            return [persona.id, statusPayload] as const;
+          })
+        );
+        setPersonaProfileStates(
+          statusRows.reduce<Record<string, PersonaProfileStatus>>((acc, [personaId, statusPayload]) => {
+            if (statusPayload) acc[personaId] = statusPayload;
+            return acc;
+          }, {})
+        );
 
         if (personasData[0]) {
           setSelectedPersonaId(personasData[0].id);
@@ -299,6 +404,13 @@ export default function DashboardPage() {
     void refreshPersonaArchive(selectedPersonaId, { autoLoadLatest: true });
   }, [token, selectedPersonaId]);
 
+  useEffect(() => {
+    if (!createFeedback) return;
+    if (createFeedback.status !== "ready") return;
+    const timer = window.setTimeout(() => setCreateFeedback(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [createFeedback]);
+
   const currentTier = useMemo(() => overview?.current_tier ?? "free", [overview?.current_tier]);
 
   const currentPlanCard = useMemo(
@@ -320,6 +432,13 @@ export default function DashboardPage() {
     () => calendarArchive[selectedPersonaId] ?? [],
     [calendarArchive, selectedPersonaId]
   );
+
+  const selectedPersonaProfile = useMemo(
+    () => (selectedPersonaId ? personaProfileStates[selectedPersonaId] : undefined),
+    [personaProfileStates, selectedPersonaId]
+  );
+
+  const selectedPersonaReady = selectedPersonaProfile?.generation_status === "ready";
 
   const generationStatus = useMemo(() => {
     if (!myPlan) return "Loading generation mode...";
@@ -344,6 +463,7 @@ export default function DashboardPage() {
     try {
       setBusyCreate(true);
       setError("");
+      setCreateFeedback({ personaId: "", status: "creating", message: "Creating persona..." });
 
       const res = await fetch(`${API_URL}/api/personas`, {
         method: "POST",
@@ -360,6 +480,11 @@ export default function DashboardPage() {
       const next = [created, ...personas];
       setPersonas(next);
       setSelectedPersonaId(created.id);
+      setCreateFeedback({
+        personaId: created.id,
+        status: "queued",
+        message: "Persona created. Preparing profile..."
+      });
 
       if (overview) {
         setOverview({ ...overview, personas_count: overview.personas_count + 1 });
@@ -367,8 +492,14 @@ export default function DashboardPage() {
 
       setForm({ ...form, name: "", handle: "" });
       await trackEvent("persona_created", { source: "dashboard" }, token);
+
+      const statusPayload = await pollProfileStatus(created.id, { updateCreateFeedback: true });
+      if (statusPayload?.generation_status === "ready") {
+        await fetchProfileStatus(created.id);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Persona creation failed");
+      setCreateFeedback(null);
     } finally {
       setBusyCreate(false);
     }
@@ -402,6 +533,11 @@ export default function DashboardPage() {
         delete clone[personaId];
         return clone;
       });
+      setPersonaProfileStates((prev) => {
+        const clone = { ...prev };
+        delete clone[personaId];
+        return clone;
+      });
 
       if (overview) {
         setOverview({ ...overview, personas_count: Math.max(0, overview.personas_count - 1) });
@@ -428,6 +564,12 @@ export default function DashboardPage() {
     try {
       setBusyGenerate(true);
       setError("");
+      const statusPayload =
+        personaProfileStates[selectedPersonaId] ?? (await fetchProfileStatus(selectedPersonaId));
+      if (!statusPayload || statusPayload.generation_status !== "ready") {
+        const label = profileStatusLabel(statusPayload?.generation_status);
+        throw new Error(`Profile not ready (${label}). Open persona workspace and complete profile generation first.`);
+      }
       const alreadySaved = currentArchive.some((entry) => entry.year === year && entry.month === month);
 
       const res = await fetch(`${API_URL}/api/calendar/${selectedPersonaId}/generate`, {
@@ -660,6 +802,23 @@ export default function DashboardPage() {
               />
               <input
                 className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                type="number"
+                min={18}
+                max={100}
+                value={form.age}
+                onChange={(e) => setForm({ ...form, age: Number(e.target.value) })}
+                placeholder="Age"
+              />
+              <select
+                className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
+                value={form.gender}
+                onChange={(e) => setForm({ ...form, gender: e.target.value as "male" | "female" })}
+              >
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+              <input
+                className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2"
                 placeholder="City"
                 value={form.city}
                 onChange={(e) => setForm({ ...form, city: e.target.value })}
@@ -670,6 +829,12 @@ export default function DashboardPage() {
                 value={form.niche}
                 onChange={(e) => setForm({ ...form, niche: e.target.value })}
               />
+              <input
+                className="rounded-lg border border-cyan-100/30 bg-slate-950/60 px-3 py-2 sm:col-span-2"
+                placeholder="Vibe (e.g. Elegant, bold, authentic)"
+                value={form.vibe}
+                onChange={(e) => setForm({ ...form, vibe: e.target.value })}
+              />
             </div>
             <button
               className="mt-3 w-full rounded-lg bg-cyan-400 py-2 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
@@ -679,6 +844,11 @@ export default function DashboardPage() {
             >
               {busyCreate ? "Creating..." : canCreatePersona ? "Create Persona" : "Persona Limit Reached"}
             </button>
+            {createFeedback ? (
+              <p className="mt-3 rounded-lg border border-cyan-300/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+                {createFeedback.message}
+              </p>
+            ) : null}
           </article>
 
           <article className="panel p-4">
@@ -687,7 +857,10 @@ export default function DashboardPage() {
               {personas.length === 0 ? (
                 <p className="rounded-lg border border-cyan-300/20 bg-slate-950/50 p-3 text-sm text-slate-300">No personas yet.</p>
               ) : (
-                personas.map((persona) => (
+                personas.map((persona) => {
+                  const profileStatus = personaProfileStates[persona.id]?.generation_status;
+                  const statusText = profileStatusLabel(profileStatus);
+                  return (
                   <div
                     key={persona.id}
                     className={`rounded-lg border px-3 py-2 ${
@@ -706,6 +879,9 @@ export default function DashboardPage() {
                     >
                       <p className="font-bold">{persona.name}</p>
                       <p className="text-xs text-slate-300">@{persona.handle} · {persona.city} · {persona.niche}</p>
+                      <p className="mt-1 text-[11px] text-cyan-100/85">
+                        {persona.gender.toUpperCase()} · {persona.age}y · {statusText}
+                      </p>
                     </button>
                     <div className="mt-2 flex gap-2">
                       <Link
@@ -724,7 +900,8 @@ export default function DashboardPage() {
                       </button>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </article>
@@ -751,6 +928,21 @@ export default function DashboardPage() {
                     </option>
                   ))}
                 </select>
+
+                {selectedPersonaId ? (
+                  <p
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                      selectedPersonaReady
+                        ? "border-emerald-300/35 bg-emerald-500/10 text-emerald-100"
+                        : "border-amber-300/35 bg-amber-500/10 text-amber-100"
+                    }`}
+                  >
+                    Profile status: {profileStatusLabel(selectedPersonaProfile?.generation_status)}
+                    {!selectedPersonaReady
+                      ? " - open the persona workspace and complete profile generation before running calendar generation."
+                      : ""}
+                  </p>
+                ) : null}
 
                 <div className="flex gap-2">
                   <input
@@ -784,7 +976,7 @@ export default function DashboardPage() {
                   className="w-full rounded-lg bg-lime-400 py-2 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
                   onClick={generateMonth}
                   type="button"
-                  disabled={!selectedPersonaId || busyGenerate}
+                  disabled={!selectedPersonaId || busyGenerate || !selectedPersonaReady}
                 >
                   {busyGenerate ? "Generating..." : "Generate Content Plan"}
                 </button>
@@ -891,9 +1083,13 @@ export default function DashboardPage() {
                     <p className="text-xs font-bold text-cyan-100">€{plan.monthly_price_eur}/mo</p>
                   </div>
                   <p className="mt-1 text-xs text-slate-200/90">{plan.tagline}</p>
-                  <p className="mt-2 text-xs text-slate-300">
-                    {plan.limits.personas} persona(s) · {plan.limits.generation_days} days · {plan.generation_mode.toUpperCase()}
-                  </p>
+                  <ul className="mt-2 space-y-1 text-[11px] text-slate-200">
+                    <li>Unlimited calendar generations (fair-use)</li>
+                    <li>Unlimited calendar regenerations (fair-use)</li>
+                    <li>Personas limit: {plan.entitlements?.personas_limit ?? plan.limits.personas}</li>
+                    <li>Days per generation: {plan.entitlements?.generation_days_per_run ?? plan.limits.generation_days}</li>
+                    <li>Included monthly credits: {plan.entitlements?.included_credits_monthly ?? 0}</li>
+                  </ul>
                 </article>
               );
             })}

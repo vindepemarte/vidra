@@ -10,6 +10,7 @@ class PlanDefinition:
     outcomes: list[str]
     limits: dict[str, int]
     generation_mode: str
+    included_monthly_credits: int = 0
 
 
 PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
@@ -19,13 +20,14 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
         monthly_price_eur=0,
         tagline="Launch your first AI creator and stay consistent every week.",
         outcomes=[
-            "Create 1 creator persona with complete profile",
-            "Generate a 7-day content sprint in one click",
-            "Get 6 posts/day with captions and prompt ideas",
-            "Export your plan to markdown/json and publish anywhere",
+            "Unlimited calendar generations and regenerations (fair-use protected)",
+            "Up to 1 persona with 7-day generation window per run",
+            "Offline-only engine (no external API cost)",
+            "Saved months, exports, and consistent prompt system included",
         ],
         limits={"personas": 1, "generation_days": 7},
         generation_mode="offline",
+        included_monthly_credits=0,
     ),
     "pro": PlanDefinition(
         id="pro",
@@ -33,13 +35,14 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
         monthly_price_eur=29,
         tagline="Turn content into a growth system with AI-assisted strategy.",
         outcomes=[
-            "Manage up to 3 creator personas",
-            "Generate full 30-day calendars with AI quality upgrade",
-            "Get stronger hooks, CTAs and conversion-oriented captions",
-            "Use your OpenRouter model for premium content planning",
+            "Unlimited calendar generations and regenerations (fair-use protected)",
+            "Up to 3 personas with 30-day generation window per run",
+            "OpenRouter-enhanced strategy and stronger conversion hooks",
+            "500 included monthly credits for media generation",
         ],
         limits={"personas": 3, "generation_days": 30},
         generation_mode="llm",
+        included_monthly_credits=500,
     ),
     "max": PlanDefinition(
         id="max",
@@ -47,13 +50,14 @@ PLAN_DEFINITIONS: dict[str, PlanDefinition] = {
         monthly_price_eur=199,
         tagline="Operate a creator portfolio at agency scale.",
         outcomes=[
-            "Manage up to 10 creator personas",
-            "Advanced 30-day campaign plans with monetization angles",
-            "High-intensity hooks and narrative continuity for scale",
-            "Priority AI orchestration with your OpenRouter model",
+            "Unlimited calendar generations and regenerations (fair-use protected)",
+            "Up to 10 personas with 30-day generation window per run",
+            "Portfolio-scale strategy with premium campaign framing",
+            "2500 included monthly credits for high-output media workflows",
         ],
         limits={"personas": 10, "generation_days": 30},
         generation_mode="llm",
+        included_monthly_credits=2500,
     ),
 }
 
@@ -77,6 +81,10 @@ def generation_days_for_tier(tier: str | None) -> int:
 
 def generation_mode_for_tier(tier: str | None) -> str:
     return PLAN_DEFINITIONS[normalize_tier(tier)].generation_mode
+
+
+def included_credits_for_tier(tier: str | None) -> int:
+    return PLAN_DEFINITIONS[normalize_tier(tier)].included_monthly_credits
 
 
 def effective_generation_mode_for_tier(tier: str | None, *, openrouter_enabled: bool) -> str:
@@ -108,6 +116,14 @@ def serialize_plan_catalog() -> list[dict]:
                 "outcomes": plan.outcomes,
                 "limits": plan.limits,
                 "generation_mode": plan.generation_mode,
+                "entitlements": {
+                    "calendar_generations": "unlimited_fair_use",
+                    "calendar_regenerations": "unlimited_fair_use",
+                    "personas_limit": plan.limits["personas"],
+                    "generation_days_per_run": plan.limits["generation_days"],
+                    "included_credits_monthly": plan.included_monthly_credits,
+                    "media_generation_requires_credits": True,
+                },
             }
         )
     return rows

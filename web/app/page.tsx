@@ -10,6 +10,14 @@ type Plan = {
   outcomes: string[];
   limits: { personas: number; generation_days: number };
   generation_mode: string;
+  entitlements?: {
+    calendar_generations: string;
+    calendar_regenerations: string;
+    personas_limit: number;
+    generation_days_per_run: number;
+    included_credits_monthly: number;
+    media_generation_requires_credits: boolean;
+  };
 };
 
 const FALLBACK_PLANS: Plan[] = [
@@ -154,7 +162,9 @@ export default async function HomePage() {
               <p className="mt-2 text-sm text-slate-200/90">{plan.tagline}</p>
 
               <div className="mt-3 rounded-lg border border-cyan-300/20 bg-slate-900/70 p-2 text-xs text-slate-200">
-                {plan.limits.personas} persona(s) · {plan.limits.generation_days} day generation · {plan.generation_mode.toUpperCase()} engine
+                Unlimited calendar generation/regeneration (fair-use) · {plan.entitlements?.personas_limit ?? plan.limits.personas} persona(s) ·{" "}
+                {plan.entitlements?.generation_days_per_run ?? plan.limits.generation_days} days per run ·{" "}
+                {plan.entitlements?.included_credits_monthly ?? 0} monthly credits
               </div>
 
               <ul className="mt-3 space-y-2 text-sm text-slate-100">

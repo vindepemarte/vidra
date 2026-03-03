@@ -7,6 +7,7 @@ from vidra_api.models import User
 from vidra_api.plans import (
     effective_generation_mode_for_tier,
     generation_days_for_tier,
+    included_credits_for_tier,
     normalize_tier,
     personas_limit_for_tier,
     serialize_plan_catalog,
@@ -42,9 +43,14 @@ async def get_my_plan(
         next_tier=upgrade_target_for_tier(tier),
         personas_limit=personas_limit_for_tier(tier),
         generation_days_limit=generation_days_for_tier(tier),
+        generation_days_per_run=generation_days_for_tier(tier),
         generation_mode=effective_generation_mode_for_tier(tier, openrouter_enabled=openrouter_enabled),
         openrouter_enabled=openrouter_enabled,
         openrouter_model=openrouter_model,
+        calendar_generations="unlimited_fair_use",
+        calendar_regenerations="unlimited_fair_use",
+        media_generation_requires_credits=True,
         credits_balance=wallet.balance_credits,
         included_credits=wallet.included_monthly_credits,
+        included_credits_monthly=included_credits_for_tier(tier),
     )

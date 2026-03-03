@@ -14,11 +14,25 @@ type MyPlan = {
   next_tier?: string | null;
   personas_limit: number;
   generation_days_limit: number;
+  generation_days_per_run?: number;
   generation_mode: string;
   openrouter_enabled?: boolean;
   openrouter_model?: string | null;
+  calendar_generations?: string;
+  calendar_regenerations?: string;
+  media_generation_requires_credits?: boolean;
   credits_balance?: number;
   included_credits?: number;
+  included_credits_monthly?: number;
+};
+
+type PlanEntitlements = {
+  calendar_generations: string;
+  calendar_regenerations: string;
+  personas_limit: number;
+  generation_days_per_run: number;
+  included_credits_monthly: number;
+  media_generation_requires_credits: boolean;
 };
 
 type Plan = {
@@ -29,6 +43,7 @@ type Plan = {
   outcomes: string[];
   limits: { personas: number; generation_days: number };
   generation_mode: string;
+  entitlements?: PlanEntitlements;
 };
 
 type CreditWallet = {
@@ -81,8 +96,13 @@ function tierRank(tier: string): number {
 async function extractErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
   try {
-    const payload = JSON.parse(text) as { detail?: string };
-    if (payload.detail) return payload.detail;
+    const payload = JSON.parse(text) as { detail?: string | { message?: string; code?: string; status?: string } };
+    if (typeof payload.detail === "string" && payload.detail) return payload.detail;
+    if (payload.detail && typeof payload.detail === "object") {
+      if (payload.detail.message) return payload.detail.message;
+      if (payload.detail.code) return payload.detail.code;
+      if (payload.detail.status) return payload.detail.status;
+    }
   } catch {
     // no-op
   }
@@ -345,7 +365,8 @@ export default function SettingsPage() {
 
         {myPlan ? (
           <div className="mt-3 rounded-lg border border-cyan-300/25 bg-slate-950/55 p-3 text-sm text-slate-100">
-            Tier: <span className="font-black">{myPlan.current_tier.toUpperCase()}</span> · Limits: {myPlan.personas_limit} persona(s), {myPlan.generation_days_limit} days generation, {myPlan.generation_mode.toUpperCase()} mode
+            Tier: <span className="font-black">{myPlan.current_tier.toUpperCase()}</span> · Unlimited calendar generations/regenerations (fair-use),{" "}
+            {myPlan.personas_limit} persona(s), {myPlan.generation_days_per_run ?? myPlan.generation_days_limit} days per run
           </div>
         ) : null}
 
@@ -367,6 +388,12 @@ export default function SettingsPage() {
                   <p className="text-xs font-bold text-cyan-100">€{plan.monthly_price_eur}/mo</p>
                 </div>
                 <p className="mt-1 text-xs text-slate-300">{plan.tagline}</p>
+                <ul className="mt-2 space-y-1 text-[11px] text-slate-200">
+                  <li>Unlimited generations/regenerations (fair-use)</li>
+                  <li>Personas: {plan.entitlements?.personas_limit ?? plan.limits.personas}</li>
+                  <li>Days per run: {plan.entitlements?.generation_days_per_run ?? plan.limits.generation_days}</li>
+                  <li>Included monthly credits: {plan.entitlements?.included_credits_monthly ?? 0}</li>
+                </ul>
               </div>
             ))}
           </div>

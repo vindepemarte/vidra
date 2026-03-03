@@ -36,6 +36,7 @@ class PersonaCreate(BaseModel):
     city: str
     niche: str
     vibe: str
+    gender: str = Field(pattern="^(male|female)$", default="female")
     template: str = "fashion"
 
 
@@ -49,6 +50,7 @@ class PersonaOut(BaseModel):
     city: str
     niche: str
     vibe: str
+    gender: str
     template: str
 
 
@@ -104,6 +106,15 @@ class CalendarListOut(BaseModel):
     months: list[CalendarMonthSummaryOut]
 
 
+class PlanEntitlementsOut(BaseModel):
+    calendar_generations: str
+    calendar_regenerations: str
+    personas_limit: int
+    generation_days_per_run: int
+    included_credits_monthly: int
+    media_generation_requires_credits: bool
+
+
 class PlanOut(BaseModel):
     id: str
     name: str
@@ -112,6 +123,7 @@ class PlanOut(BaseModel):
     outcomes: list[str]
     limits: dict[str, int]
     generation_mode: str
+    entitlements: PlanEntitlementsOut
 
 
 class PlanCatalogOut(BaseModel):
@@ -153,11 +165,16 @@ class MyPlanOut(BaseModel):
     next_tier: str | None
     personas_limit: int
     generation_days_limit: int
+    generation_days_per_run: int
     generation_mode: str
     openrouter_enabled: bool = False
     openrouter_model: str | None = None
+    calendar_generations: str = "unlimited_fair_use"
+    calendar_regenerations: str = "unlimited_fair_use"
+    media_generation_requires_credits: bool = True
     credits_balance: int = 0
     included_credits: int = 0
+    included_credits_monthly: int = 0
 
 
 class DashboardOverviewOut(BaseModel):
@@ -266,9 +283,21 @@ class PersonaProfileOut(BaseModel):
     generated_mode: str
 
 
+class PersonaProfileStatusOut(BaseModel):
+    generation_status: str
+    generation_requested_mode: str | None = None
+    generation_effective_mode: str | None = None
+    generation_model_used: str | None = None
+    generation_error: str | None = None
+    generation_started_at: datetime | None = None
+    generation_completed_at: datetime | None = None
+    generation_run_id: str | None = None
+
+
 class PersonaDetailOut(BaseModel):
     persona: PersonaOut
     profile: PersonaProfileOut | None = None
+    profile_status: PersonaProfileStatusOut | None = None
     calendars: list[CalendarMonthSummaryOut]
     media_generated_count: int = 0
     recent_media_jobs: list[MediaJobSummaryOut] = Field(default_factory=list)

@@ -43,7 +43,7 @@ async def save_onboarding_step(
     state.current_step = max(state.current_step, payload.step)
     if payload.goal is not None and payload.goal.strip():
         state.goal = payload.goal.strip()
-    if payload.step >= 4:
+    if payload.step >= 5:
         state.completed = True
     state.updated_at = dt.datetime.utcnow()
 
@@ -57,7 +57,7 @@ async def complete_onboarding(
     db: AsyncSession = Depends(get_db),
 ) -> OnboardingCompleteOut:
     state = await _get_or_create_state(db, user)
-    state.current_step = max(state.current_step, 4)
+    state.current_step = max(state.current_step, 5)
     state.completed = True
     state.updated_at = dt.datetime.utcnow()
     await db.commit()

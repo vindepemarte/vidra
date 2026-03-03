@@ -7,16 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vidra_api.models import CreditLedger, CreditWallet
-from vidra_api.plans import normalize_tier
-
-
-def included_credits_for_tier(tier: str | None) -> int:
-    normalized = normalize_tier(tier)
-    if normalized == "pro":
-        return 500
-    if normalized == "max":
-        return 2500
-    return 0
+from vidra_api.plans import included_credits_for_tier
 
 
 async def ensure_wallet(db: AsyncSession, user_id: UUID, *, tier: str | None) -> CreditWallet:
