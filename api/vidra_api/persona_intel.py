@@ -508,7 +508,8 @@ Cover: pillars, positioning, voice, hooks, CTA styles, monetization angles.
     prompt_blueprint = (
         f"{p['name']}, {p['age']} years old, {p['gender']} {p['niche']} creator from {p['city']}, "
         f"{p['vibe']} vibe, face identity locked, details: {physical.get('face', '')}, "
-        f"skin: {physical.get('skin', '')}, hair: {physical.get('hair_default', '')}, photorealistic"
+        f"skin: {physical.get('skin', '')}, hair: {physical.get('hair_default', '')}, "
+        "UGC-first, shot on smartphone, natural ambient light, slight grain, authentic social-feed look"
     )
 
     carousel_rules = {

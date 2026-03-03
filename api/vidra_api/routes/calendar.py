@@ -1,6 +1,8 @@
 import asyncio
 import calendar as pycalendar
 import logging
+import random
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -83,6 +85,65 @@ def _expected_mode_for_tier(tier: str, *, openrouter_enabled: bool) -> str:
     return "offline"
 
 
+UGC_TROPES = [
+    "half-face selfie, slight crop, ambient street light",
+    "over-shoulder shot of phone screen, depth-of-field blur",
+    "holding a coffee cup close-up, soft background crowd",
+    "mirror snap with some dust, natural glare",
+    "friend-in-frame laughter, candid motion blur",
+    "out-of-focus foreground (doorframe), subject mid-action",
+    "reflections on train window, city lights at night",
+    "small subject in wide urban frame, architectural scale",
+    "hands adjusting jacket, face partially hidden",
+    "tabletop flatlay, drink + notebook, casual grain",
+    "elevator mirror selfie, warm lights, slight distortion",
+    "sit on curb, sneakers in focus, face cropped",
+    "through cafe window, glass reflections, cozy interior",
+    "street night neon, silhouette, grainy texture",
+    "backlit sunset, hair glow, candid glance",
+    "kitchen counter snack, overhead phone snap",
+    "messy desk, laptop glow, hand on keyboard",
+    "club low-light, phone flash, crowd blur",
+    "gym mirror, phone covering face, sweat detail",
+]
+
+
+def _pick_ugc_trope(day_index: int, post_number: int) -> str:
+    idx = (day_index * 7 + post_number * 3 + random.randint(0, 5)) % len(UGC_TROPES)
+    return UGC_TROPES[idx]
+
+
+def _extract_story_snippets(profile: PersonaProfile) -> list[str]:
+    snippets: list[str] = []
+
+    def _pull(text: str | None) -> None:
+        if not text:
+            return
+        # Split on sentences; keep short ones
+        parts = re.split(r"(?<=[.!?])\s+", text.strip())
+        for p in parts:
+            clean = p.strip()
+            if 24 <= len(clean) <= 180:
+                snippets.append(clean)
+
+    _pull(profile.future_plans_md)
+    _pull(profile.strategy_md)
+    _pull(profile.backstory_md)
+
+    # De-dup and cap
+    uniq: list[str] = []
+    seen = set()
+    for s in snippets:
+        if s not in seen:
+            uniq.append(s)
+            seen.add(s)
+        if len(uniq) >= 16:
+            break
+    if not uniq:
+        uniq = ["Continuity: same persona identity and story arc across posts."]
+    return uniq
+
+
 def _profile_generation_status(profile: PersonaProfile | None) -> str:
     if profile is None:
         return "empty"
@@ -159,18 +220,45 @@ def _enrich_drafts_with_profile(drafts: list[DayDraft], profile: PersonaProfile 
     world = profile.world if isinstance(profile.world, dict) else {}
     events = world.get("events") if isinstance(world.get("events"), list) else []
     carousel_rules = profile.carousel_rules if isinstance(profile.carousel_rules, dict) else {}
+    story_snippets = _extract_story_snippets(profile)
+
+    # Map events to days if date_range carries day numbers; otherwise fall back to rotation
+    event_by_day: dict[int, str] = {}
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        name = ev.get("name") or ev.get("description") or ""
+        date_range = (ev.get("date_range") or "").strip()
+        if not date_range or not name:
+            continue
+        parts = date_range.replace("to", "-").replace("–", "-").split("-")
+        for p in parts:
+            try:
+                day_num = int("".join(ch for ch in p if ch.isdigit()))
+                if 1 <= day_num <= 31:
+                    event_by_day[day_num] = name
+            except Exception:
+                continue
 
     for day_index, day in enumerate(drafts):
-        event_hint = ""
-        if events:
-            event = events[day_index % len(events)]
+        event_hint = event_by_day.get(day.day, "")
+        if not event_hint and events:
+            event = events[(day_index) % len(events)]
             if isinstance(event, dict):
                 event_hint = event.get("name") or event.get("description") or ""
 
         for post in day.posts:
             style = pick_style_snippet(wardrobe, scene_type=post.scene_type, day_index=day_index, post_number=post.post_number)
-            post.prompt = f"{blueprint}. {post.prompt}. Outfit cue: {style}. {event_hint}".strip()
-            post.caption = f"{post.caption}"
+            event_prefix = f"Covering event: {event_hint}. " if event_hint else ""
+            ugc_suffix = "UGC smartphone shot, half-face or over-shoulder framing, ambient light, slight grain, handheld realism, social-feed ready."
+            trope = _pick_ugc_trope(day_index, post.post_number)
+            story_arc = story_snippets[(day_index + post.post_number) % len(story_snippets)]
+            post.prompt = (
+                f"{blueprint}. {event_prefix}{post.prompt}. Story arc: {story_arc}. "
+                f"Outfit cue: {style}. {ugc_suffix} Reference: {trope}"
+            ).strip()
+            if event_hint:
+                post.caption = f"{post.caption} · Event: {event_hint}"
 
             slides = build_carousel_slides(
                 base_prompt=post.prompt,

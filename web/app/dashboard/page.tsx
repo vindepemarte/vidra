@@ -1118,7 +1118,11 @@ export default function DashboardPage() {
                   <ul className="mt-2 space-y-1 text-[11px] text-slate-200">
                     <li>Unlimited calendar generations (fair-use)</li>
                     <li>Unlimited calendar regenerations (fair-use)</li>
-                    <li>Personas limit: {plan.entitlements?.personas_limit ?? plan.limits.personas}</li>
+                  <li>
+                    Personas limit: {(plan.entitlements?.personas_limit ?? plan.limits.personas) >= 9999
+                      ? "Unlimited"
+                      : plan.entitlements?.personas_limit ?? plan.limits.personas}
+                  </li>
                     <li>Days per generation: {plan.entitlements?.generation_days_per_run ?? plan.limits.generation_days}</li>
                     <li>Included monthly credits: {plan.entitlements?.included_credits_monthly ?? 0}</li>
                   </ul>

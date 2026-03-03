@@ -302,12 +302,15 @@ export default function PersonaPage() {
   const [selectedSlidePrompt, setSelectedSlidePrompt] = useState("");
   const [selectedSourceMediaId, setSelectedSourceMediaId] = useState("");
   const [mediaMode, setMediaMode] = useState<"image" | "edit">("image");
+  const [genMonth, setGenMonth] = useState(new Date().getMonth() + 1);
+  const [genYear, setGenYear] = useState(new Date().getFullYear());
 
   const [loading, setLoading] = useState(true);
   const [busyLoadMonth, setBusyLoadMonth] = useState(false);
   const [busyRegenerate, setBusyRegenerate] = useState<string | null>(null);
   const [busyDelete, setBusyDelete] = useState(false);
   const [busyMedia, setBusyMedia] = useState(false);
+  const [busyGenerateCal, setBusyGenerateCal] = useState(false);
   const [pollingProfile, setPollingProfile] = useState(false);
   const [statusElapsedSec, setStatusElapsedSec] = useState(0);
   const [error, setError] = useState("");
@@ -602,6 +605,37 @@ export default function PersonaPage() {
       setError(err instanceof Error ? err.message : "Media generation failed");
     } finally {
       setBusyMedia(false);
+    }
+  }
+
+  async function generateCalendarFromPersona(): Promise<void> {
+    if (!token || !personaId || busyGenerateCal) return;
+    if (!isProfileReady) {
+      setError("Profile is not ready. Complete profile generation first.");
+      return;
+    }
+    try {
+      setBusyGenerateCal(true);
+      setError("");
+      const res = await fetch(`${API_URL}/api/calendar/${personaId}/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ month: genMonth, year: genYear, force_regenerate: true })
+      });
+      if (!res.ok) throw new Error(await extractErrorMessage(res));
+      const payload = (await res.json()) as CalendarMonth;
+      setLoadedMonth(payload);
+      setSelectedMonthKey(monthKey(genYear, genMonth));
+      await loadMediaJobs();
+      await loadPersonaDetail(false);
+      setSuccess("Calendar generated and loaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Calendar generation failed.");
+    } finally {
+      setBusyGenerateCal(false);
     }
   }
 
@@ -1041,6 +1075,46 @@ export default function PersonaPage() {
       {activeTab === "calendar" ? (
         <section className="grid gap-4">
           <article className="panel p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-black">Generate Calendar (here)</h2>
+              <span className="rounded-md border border-slate-300/40 bg-slate-700/30 px-2 py-1 text-xs font-bold text-slate-100">
+                Requires READY profile
+              </span>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="number"
+                min={1}
+                max={12}
+                className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
+                value={genMonth}
+                onChange={(e) => setGenMonth(Number(e.target.value))}
+                placeholder="Month (1-12)"
+              />
+              <input
+                type="number"
+                min={2024}
+                max={2100}
+                className="w-full rounded-lg border border-slate-400/35 bg-slate-950/70 px-3 py-2"
+                value={genYear}
+                onChange={(e) => setGenYear(Number(e.target.value))}
+                placeholder="Year"
+              />
+              <button
+                type="button"
+                onClick={() => void generateCalendarFromPersona()}
+                disabled={!isProfileReady || busyGenerateCal}
+                className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
+              >
+                {busyGenerateCal ? "Generating..." : "Generate Calendar"}
+              </button>
+            </div>
+            {!isProfileReady ? (
+              <p className="mt-2 text-xs text-amber-100">Profile must be READY before generating.</p>
+            ) : null}
+          </article>
+
+          <article className="panel p-4">
             <h2 className="text-lg font-black">Calendar Archive</h2>
             {calendarArchive.length === 0 ? (
               <p className="mt-2 subpanel px-3 py-2 text-sm text-slate-300">No saved months yet. Generate from dashboard first.</p>
@@ -1115,6 +1189,11 @@ export default function PersonaPage() {
             <div>
               <h2 className="text-lg font-black">Media Studio</h2>
               <p className="mt-1 text-xs text-slate-300">Prompts are sourced from selected calendar month and post slides.</p>
+              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-200">
+                <span className="rounded-md border border-cyan-300/30 bg-cyan-500/10 px-2 py-0.5 font-semibold text-cyan-100">UGC-first</span>
+                <span className="rounded-md border border-amber-300/30 bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-100">Event-linked when available</span>
+                <span className="rounded-md border border-lime-300/30 bg-lime-500/10 px-2 py-0.5 font-semibold text-lime-100">Carousel ready</span>
+              </div>
             </div>
             <span className="rounded-md border border-cyan-300/35 bg-cyan-500/10 px-2 py-1 text-xs font-bold text-cyan-100">
               Month {activeMonthLabel} source active

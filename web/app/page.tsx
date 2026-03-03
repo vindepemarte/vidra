@@ -20,6 +20,11 @@ type Plan = {
   };
 };
 
+function formatLimit(value: number): string {
+  if (value >= 9999) return "Unlimited";
+  return String(value);
+}
+
 const FALLBACK_PLANS: Plan[] = [
   {
     id: "free",
@@ -41,12 +46,13 @@ const FALLBACK_PLANS: Plan[] = [
     monthly_price_eur: 29,
     tagline: "Turn creator content into an AI-assisted growth machine.",
     outcomes: [
-      "3 personas + 30-day planning",
+      "10 personas + 30-day planning",
+      "Unlimited generations, regenerations fair-use rate-limited",
       "OpenRouter-powered strategy and hooks",
       "fal.ai image generation with monthly included credits",
       "Faster campaign execution and conversion focus"
     ],
-    limits: { personas: 3, generation_days: 30 },
+    limits: { personas: 10, generation_days: 30 },
     generation_mode: "llm"
   },
   {
@@ -55,12 +61,13 @@ const FALLBACK_PLANS: Plan[] = [
     monthly_price_eur: 199,
     tagline: "Operate a multi-persona portfolio at agency level.",
     outcomes: [
-      "10 personas + high-output planning",
+      "Unlimited personas + high-output planning",
+      "Unlimited generations and regenerations (fair-use)",
       "Portfolio-level campaign operations",
       "Higher included credits + priority media workflows",
       "Scale architecture for top-tier AI influencer teams"
     ],
-    limits: { personas: 10, generation_days: 30 },
+    limits: { personas: 9999, generation_days: 30 },
     generation_mode: "llm"
   }
 ];
@@ -162,7 +169,7 @@ export default async function HomePage() {
               <p className="mt-2 text-sm text-slate-200/90">{plan.tagline}</p>
 
               <div className="mt-3 rounded-lg border border-cyan-300/20 bg-slate-900/70 p-2 text-xs text-slate-200">
-                Unlimited calendar generation/regeneration (fair-use) · {plan.entitlements?.personas_limit ?? plan.limits.personas} persona(s) ·{" "}
+                Unlimited calendar generation/regeneration (fair-use) · {formatLimit(plan.entitlements?.personas_limit ?? plan.limits.personas)} persona(s) ·{" "}
                 {plan.entitlements?.generation_days_per_run ?? plan.limits.generation_days} days per run ·{" "}
                 {plan.entitlements?.included_credits_monthly ?? 0} monthly credits
               </div>

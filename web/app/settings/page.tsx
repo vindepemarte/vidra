@@ -390,7 +390,11 @@ export default function SettingsPage() {
                 <p className="mt-1 text-xs text-slate-300">{plan.tagline}</p>
                 <ul className="mt-2 space-y-1 text-[11px] text-slate-200">
                   <li>Unlimited generations/regenerations (fair-use)</li>
-                  <li>Personas: {plan.entitlements?.personas_limit ?? plan.limits.personas}</li>
+                  <li>
+                    Personas: {(plan.entitlements?.personas_limit ?? plan.limits.personas) >= 9999
+                      ? "Unlimited"
+                      : plan.entitlements?.personas_limit ?? plan.limits.personas}
+                  </li>
                   <li>Days per run: {plan.entitlements?.generation_days_per_run ?? plan.limits.generation_days}</li>
                   <li>Included monthly credits: {plan.entitlements?.included_credits_monthly ?? 0}</li>
                 </ul>

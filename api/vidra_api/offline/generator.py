@@ -71,8 +71,8 @@ class OfflineCalendarEngine:
                     f"Building a consistent {niche} story, one post at a time."
                 )
                 prompt = (
-                    f"{persona_name}, {scene} scene, {mood} mood, {city}, high-detail, "
-                    f"social-ready framing, cinematic but natural"
+                    f"{persona_name}, {scene} scene, {mood} mood, {city}. UGC smartphone shot, half-face or candid angle, "
+                    f"natural grain, handheld slight motion blur, ambient light, friends-in-frame feel, real-world depth."
                 )
                 hashtags = f"#{niche.lower().replace(' ', '')} #creator #content #vidra"
 

@@ -85,14 +85,15 @@ Constraints:
                     tag_line = json.dumps(tag_line)
 
                 post.caption = f"{hook} {post.caption} {cta}".strip()
+                ugc_mod = "UGC vibe, shot on phone, slight grain, imperfect framing, half-face crops, wrist/hand in frame, natural light"
                 post.prompt = (
-                    f"{post.prompt}. Pillar: {pillar}. Visual direction: {visual}. "
-                    f"Make it premium creator-grade and conversion-aware."
+                    f"{post.prompt}. Pillar: {pillar}. Visual direction: {visual}. {ugc_mod}. "
+                    f"Prioritize authentic feed look over studio perfection."
                 )
                 post.hashtags = tag_line
 
                 if tier == "max":
                     post.caption = f"{post.caption} DM for partnership details."
-                    post.prompt = f"{post.prompt} Include monetization framing and brand-safe composition."
+                    post.prompt = f"{post.prompt} Include monetization framing and brand-safe composition; retain UGC realism."
 
         return PaidGenerationResult(days=base_days, model_used=model_used)
