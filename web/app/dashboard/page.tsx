@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { LogoutButton } from "@/components/logout-button";
 import { API_URL } from "@/lib/api";
 import { trackEvent } from "@/lib/events";
+import { StreakDisplay } from "@/components/streak-display";
 
 type Persona = {
   id: string;
@@ -75,6 +76,7 @@ type DashboardOverview = {
   included_credits: number;
   persona_health_score: number;
   weekly_quests: string[];
+  streak: any;
 };
 
 type MyPlan = {
@@ -745,8 +747,8 @@ export default function DashboardPage() {
               <p className="mt-1 text-xl font-black">{overview.generated_months_count}</p>
             </article>
             <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
-              <p className="text-xs uppercase tracking-wide text-cyan-100/75">Health Score</p>
-              <p className="mt-1 text-xl font-black">{overview.persona_health_score}/100</p>
+              <p className="text-xs uppercase tracking-wide text-cyan-100/75">Content Streak</p>
+              <StreakDisplay streak={overview.streak} />
             </article>
             <article className="rounded-lg border border-cyan-300/20 bg-slate-950/55 p-3">
               <p className="text-xs uppercase tracking-wide text-cyan-100/75">Credits</p>

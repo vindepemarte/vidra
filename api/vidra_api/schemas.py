@@ -177,6 +177,17 @@ class MyPlanOut(BaseModel):
     included_credits_monthly: int = 0
 
 
+class StreakStatusOut(BaseModel):
+    current_streak: int = 0
+    longest_streak: int = 0
+    total_active_days: int = 0
+    last_activity_date: str | None = None
+    streak_frozen: bool = False
+    streak_health: str = "active"
+    next_milestone: int | None = None
+    recent_milestones: list[dict] = Field(default_factory=list)
+
+
 class DashboardOverviewOut(BaseModel):
     current_tier: str
     personas_count: int
@@ -192,6 +203,7 @@ class DashboardOverviewOut(BaseModel):
     included_credits: int = 0
     persona_health_score: int = 0
     weekly_quests: list[str] = Field(default_factory=list)
+    streak: StreakStatusOut = Field(default_factory=StreakStatusOut)
 
 
 class OnboardingStateOut(BaseModel):

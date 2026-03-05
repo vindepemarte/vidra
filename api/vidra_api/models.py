@@ -299,3 +299,50 @@ class MediaGeneration(Base):
     external_job_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow, index=True)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
+class ContentStreak(Base):
+    """Tracks daily content creation streaks for engagement and gamification."""
+    __tablename__ = "content_streaks"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_content_streak_user"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    current_streak: Mapped[int] = mapped_column(Integer, default=0)
+    longest_streak: Mapped[int] = mapped_column(Integer, default=0)
+    last_activity_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    total_active_days: Mapped[int] = mapped_column(Integer, default=0)
+    streak_frozen: Mapped[bool] = mapped_column(Boolean, default=False)
+    freeze_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
+class StreakActivity(Base):
+    """Records individual streak activities for history tracking."""
+    __tablename__ = "streak_activities"
+    __table_args__ = (
+        UniqueConstraint("user_id", "activity_date", name="uq_streak_activity_user_date"),
+        Index("ix_streak_activities_user_date", "user_id", "activity_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    activity_date: Mapped[dt.date] = mapped_column(Date)
+    activity_type: Mapped[str] = mapped_column(String(64), default="login")  # login, calendar_generated, media_created
+    points_earned: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+
+
+class StreakMilestone(Base):
+    """Tracks milestone achievements for streak gamification."""
+    __tablename__ = "streak_milestones"
+    __table_args__ = (UniqueConstraint("user_id", "milestone_type", "milestone_value", name="uq_streak_milestone"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    milestone_type: Mapped[str] = mapped_column(String(64))  # streak_days, total_days, longest_streak
+    milestone_value: Mapped[int] = mapped_column(Integer)
+    achieved_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)
+    reward_claimed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=dt.datetime.utcnow)

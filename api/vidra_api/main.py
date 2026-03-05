@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from vidra_api.config import settings
 from vidra_api.database import Base, engine
-from vidra_api.routes import account, auth, billing, calendar, consent, credits, dashboard, events, export, media, onboarding, personas, plans, studio
+from vidra_api.routes import account, auth, billing, calendar, consent, credits, dashboard, events, export, media, onboarding, personas, plans, streak, studio
 
 logger = logging.getLogger("vidra_api")
 
@@ -64,6 +64,7 @@ app.include_router(consent.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(studio.router, prefix="/api")
+app.include_router(streak.router, prefix="/api")
 
 
 @app.get("/health")

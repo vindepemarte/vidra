@@ -12,9 +12,10 @@ from vidra_api.plans import (
     normalize_tier,
     personas_limit_for_tier,
 )
-from vidra_api.schemas import DashboardOverviewOut
+from vidra_api.schemas import DashboardOverviewOut, StreakStatusOut
 from vidra_api.services.model_preferences import resolve_openrouter_model
 from vidra_api.services.wallet import ensure_wallet
+from vidra_api.services.streak import get_streak_status, record_streak_activity
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -74,6 +75,9 @@ async def get_dashboard_overview(
     tier = normalize_tier(user.tier)
     openrouter_enabled = bool(settings.openrouter_api_key)
 
+    # Record streak activity on dashboard load
+    await record_streak_activity(db, user.id, activity_type="login")
+
     personas_count = int((await db.scalar(select(func.count(Persona.id)).where(Persona.user_id == user.id))) or 0)
 
     generated_months_count = int(
@@ -94,6 +98,11 @@ async def get_dashboard_overview(
         onboarding_completed = True
 
     wallet = await ensure_wallet(db, user.id, tier=tier)
+    
+    # Get streak status
+    streak_data = await get_streak_status(db, user.id)
+    streak_out = StreakStatusOut(**streak_data)
+    
     await db.commit()
 
     openrouter_model = await resolve_openrouter_model(db, user.id) if tier in {"pro", "max"} and openrouter_enabled else None
@@ -117,4 +126,5 @@ async def get_dashboard_overview(
             generated_months_count=generated_months_count,
         ),
         weekly_quests=_weekly_quests_for_tier(tier),
+        streak=streak_out,
     )
