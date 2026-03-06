@@ -22,6 +22,7 @@ from vidra_api.persona_intel import (
 )
 from vidra_api.plans import generation_days_for_tier, generation_mode_for_tier, normalize_tier
 from vidra_api.schemas import CalendarListOut, CalendarMonthSummaryOut, DayOut, GenerateCalendarRequest, MonthOut, PostOut, SlideOut
+from vidra_api.services.streak import record_streak_activity
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 logger = logging.getLogger("vidra_api.calendar")
@@ -396,6 +397,9 @@ async def generate_calendar(
                 )
 
     await db.commit()
+
+    # Record streak activity for calendar generation
+    await record_streak_activity(db, user.id, activity_type="calendar_generated")
 
     saved_q = await db.execute(
         select(CalendarMonth)

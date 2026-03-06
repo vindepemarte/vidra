@@ -27,6 +27,7 @@ from vidra_api.schemas import (
 )
 from vidra_api.services.model_preferences import resolve_fal_models
 from vidra_api.services.wallet import apply_wallet_delta, ensure_wallet
+from vidra_api.services.streak import record_streak_activity
 from vidra_api.utils.limiter import enforce_rate_limit
 from vidra_api.utils.security import decrypt_secret
 
@@ -314,6 +315,9 @@ async def _run_media_job(
             job.error_message = None
 
             await db.commit()
+
+            # Record streak activity for media creation
+            await record_streak_activity(db, user_id, activity_type="media_created")
         except Exception as exc:  # noqa: BLE001
             job.status = "failed"
             job.error_message = str(exc)
@@ -334,6 +338,9 @@ async def _run_media_job(
                     source_id=str(job.id),
                 )
             await db.commit()
+
+            # Record streak activity for media creation
+            await record_streak_activity(db, user_id, activity_type="media_created")
             logger.exception("Media job failed job_id=%s model=%s operation=%s", job_id, model, operation)
 
 
