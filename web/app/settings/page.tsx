@@ -8,6 +8,7 @@ import { useSession } from "next-auth/react";
 import { LogoutButton } from "@/components/logout-button";
 import { API_URL } from "@/lib/api";
 import { trackEvent } from "@/lib/events";
+import { ReferralDisplay } from "@/components/referral-display";
 
 type MyPlan = {
   current_tier: string;
@@ -563,6 +564,11 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+        </article>
+
+        {/* Referral Program */}
+        <article className="panel p-4">
+          <ReferralDisplay token={token} />
         </article>
       </section>
 

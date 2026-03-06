@@ -1,3 +1,4 @@
+# New auth.py content with referral support
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from vidra_api.deps import get_current_user
 from vidra_api.models import User
 from vidra_api.schemas import AuthResponse, LoginRequest, SignupRequest, UserOut
 from vidra_api.utils.limiter import enforce_rate_limit
+from vidra_api.routes.referrals import process_referral_signup, ensure_user_referral_code
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -31,6 +33,14 @@ async def signup(payload: SignupRequest, request: Request, db: AsyncSession = De
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    
+    # Generate referral code for new user
+    await ensure_user_referral_code(db, user)
+    
+    # Process referral if code provided
+    if payload.referral_code:
+        await process_referral_signup(db, user, payload.referral_code)
+    
     return user
 
 
